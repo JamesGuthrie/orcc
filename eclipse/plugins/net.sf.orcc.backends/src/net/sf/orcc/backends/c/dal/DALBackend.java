@@ -1,6 +1,7 @@
 package net.sf.orcc.backends.c.dal;
 
 import net.sf.orcc.backends.c.CBackend;
+import net.sf.orcc.backends.c.CValidator;
 import net.sf.orcc.backends.util.Validator;
 import net.sf.orcc.df.Actor;
 import net.sf.orcc.df.Action;
@@ -82,6 +83,8 @@ public class DALBackend extends CBackend {
 
 	@Override
 	protected void doXdfCodeGeneration(Network network) {
+		CValidator.checkFunctionNames(network);
+
 		Validator.checkTopLevel(network);
 		Validator.checkMinimalFifoSize(network, fifoSize);
 		

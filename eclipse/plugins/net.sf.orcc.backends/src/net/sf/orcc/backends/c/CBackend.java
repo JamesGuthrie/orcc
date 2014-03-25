@@ -214,6 +214,7 @@ public class CBackend extends AbstractBackend {
 
 	@Override
 	protected void doXdfCodeGeneration(Network network) {
+		CValidator.checkFunctionNames(network);
 		Validator.checkTopLevel(network);
 		Validator.checkMinimalFifoSize(network, fifoSize);
 		
