@@ -147,4 +147,9 @@ public interface OrccLaunchConstants {
 
 	public static final String CLASSIFY = "net.sf.orcc.core.classify";
 
+	/**
+	 * Whether to check guards in DAL backend
+	 */
+	public static final String CHECK_GUARDS = "net.sf.orcc.backends.c.dal.checkGuards";
+
 }

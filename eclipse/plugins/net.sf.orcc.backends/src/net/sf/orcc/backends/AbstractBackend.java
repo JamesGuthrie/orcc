@@ -30,6 +30,7 @@ package net.sf.orcc.backends;
 
 import static net.sf.orcc.OrccActivator.getDefault;
 import static net.sf.orcc.OrccLaunchConstants.BACKEND;
+import static net.sf.orcc.OrccLaunchConstants.CHECK_GUARDS;
 import static net.sf.orcc.OrccLaunchConstants.CLASSIFY;
 import static net.sf.orcc.OrccLaunchConstants.COMPILE_XDF;
 import static net.sf.orcc.OrccLaunchConstants.DEBUG_MODE;
@@ -876,6 +877,8 @@ public abstract class AbstractBackend implements Backend, IApplication {
 				true,
 				"(TTA) Predefined configurations for the processors (Standard|Custom|Fast|Huge)");
 
+		options.addOption("g","check-guards", false, "(DAL) Enable guard-checking (requires smt to be set)");
+
 		// FIXME: choose independently the transformation to apply
 		options.addOption("t", "transfo_add", false,
 				"Execute additional transformations before generate code");
@@ -957,6 +960,14 @@ public abstract class AbstractBackend implements Backend, IApplication {
 				} else {
 					OrccLogger
 							.warnln("Unknown processors configuration for TTA. Standard configuration will be apply.");
+				}
+			}
+
+			if (line.hasOption("g")) {
+				if (getDefault().getPreference(P_SOLVER, "").length() == 0) {
+					throw new OrccRuntimeException("Check-guards option set but no SMT-solver available.");
+				} else {
+					optionMap.put(CHECK_GUARDS, true);
 				}
 			}
 
