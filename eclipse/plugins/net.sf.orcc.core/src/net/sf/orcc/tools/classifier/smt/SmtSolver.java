@@ -250,7 +250,6 @@ public class SmtSolver {
 
 			ByteArrayOutputStream bos = new ByteArrayOutputStream();
 			PrintStream ps = new PrintStream(bos);
-			ps.println("(set-logic QF_AUFBV)");
 			for (String command : script.getCommands()) {
 				ps.println(command);
 			}
