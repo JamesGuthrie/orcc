@@ -140,6 +140,11 @@ public class KPNValidator {
 						if (sat) {
 							OrccLogger.warnln("(" + actor.getName() + ") action '" + firstAction.getName() + "' reads port '"  + port.getName() +
 									"'\n but action '"+ secondAction.getName() + "' does not. Application may deadlock.");
+						} else {
+							if (!firstAction.getPeekPattern().toString().equalsIgnoreCase(secondAction.getPeekPattern().toString())){
+								OrccLogger.warnln("(" + actor.getName() + ") action '" + firstAction.getName() + "' has peek pattern '"  + firstAction.getPeekPattern().toString() +
+										"'\n but action '"+ secondAction.getName() + "' has pattern '" + secondAction.getPeekPattern().toString() + "'. Application may deadlock.");
+							}
 						}
 					}
 				}
