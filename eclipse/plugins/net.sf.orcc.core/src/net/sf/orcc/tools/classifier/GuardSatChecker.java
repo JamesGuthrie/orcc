@@ -579,6 +579,30 @@ public class GuardSatChecker {
 	}
 
 	/**
+	 * Returns <code>true</code> if the guard of action can be satisfied and
+	 * <code>false</code> if the guard can never be satisfied.
+	 *
+	 * @param action
+	 *            action
+	 * @return <code>true</code> if the guards of action can be satisfied
+	 */
+	public boolean checkSat(Action action) {
+		SmtTranslator translator = new SmtTranslator();
+		for (Port port : actor.getInputs()) {
+			translator.doSwitch(port);
+		}
+		translator.doSwitch(action);
+
+		SmtScript script = translator.getScript();
+
+		// check whether the guard is satisfiable or not
+		script.addCommand("(assert " + action.getScheduler().getName() + ")");
+		script.addCommand("(check-sat)");
+
+		return new SmtSolver(actor).checkSat(script);
+	}
+
+	/**
 	 * Computes the values of tokens that when present on the given ports
 	 * satisfy the following two conditions:
 	 * <ol>

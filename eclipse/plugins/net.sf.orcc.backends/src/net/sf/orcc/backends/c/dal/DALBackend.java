@@ -1,6 +1,7 @@
 package net.sf.orcc.backends.c.dal;
 
 import net.sf.orcc.backends.c.CBackend;
+import net.sf.orcc.backends.c.dal.transform.LoadRewriter;
 import net.sf.orcc.backends.util.Validator;
 import net.sf.orcc.df.Actor;
 import net.sf.orcc.df.Action;
@@ -67,6 +68,9 @@ public class DALBackend extends CBackend {
 		}
 
 		new ArgumentEvaluator().doSwitch(network);
+
+		OrccLogger.traceln("Rewriting load instructions...");
+		new LoadRewriter().doSwitch(network);
 		
 		KPNValidator validator = new KPNValidator();
 		validator.validate(network);

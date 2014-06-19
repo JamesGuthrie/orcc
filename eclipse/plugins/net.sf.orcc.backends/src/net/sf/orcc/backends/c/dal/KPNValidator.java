@@ -1,9 +1,20 @@
 package net.sf.orcc.backends.c.dal;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 
 import net.sf.orcc.graph.Edge;
+import net.sf.orcc.ir.Block;
+import net.sf.orcc.ir.BlockBasic;
+import net.sf.orcc.ir.InstLoad;
+import net.sf.orcc.ir.Instruction;
+import net.sf.orcc.ir.impl.InstLoadImpl;
+import net.sf.orcc.ir.util.IrUtil;
+import net.sf.orcc.tools.classifier.GuardSatChecker;
 import net.sf.orcc.util.OrccLogger;
 import net.sf.orcc.df.Actor;
 import net.sf.orcc.df.Action;
@@ -18,6 +29,7 @@ import net.sf.orcc.df.Network;
  * of a network.
  * 
  * @author Jani Boutellier
+ * @author James Guthrie
  * 
  */
 public class KPNValidator {
@@ -54,19 +66,220 @@ public class KPNValidator {
 			}
 		}
 	}
-	
+
 	public void analyzeOutputs(Network network) {
 		for (Actor actor : network.getAllActors()) {
 			if (actor.getActions().size() > 1) {
 				analyzeOutputPorts(actor, actor.getActions());
 			} else {
-				Pattern outputPattern = actor.getActions().get(0).getOutputPattern();
-				for(Port port : outputPattern.getPorts()) {
-					port.setNumTokensProduced(outputPattern.getNumTokensMap().get(port));
+				if (actor.getActions().size() != 0) {
+					Pattern outputPattern = actor.getActions().get(0).getOutputPattern();
+					for(Port port : outputPattern.getPorts()) {
+						port.setNumTokensProduced(outputPattern.getNumTokensMap().get(port));
+					}
 				}
 			}
 		}
 	}
+
+	private GuardSatChecker satChecker;
+
+	private SeqTreeNode getPeekSequence(Actor actor, List<Action> actions) {
+		satChecker = new GuardSatChecker(actor);
+		SeqTreeNode root = new SeqTreeNode(actions);
+		return addChildren(root);
+	}
+
+	/**
+	 * Given a set of tokens, return a set of Instruction sets, one set of
+	 * Instructions for each action in actions
+	 *
+	 * @param actions
+	 * @return
+	 */
+	private Set<InstLoad> getTokenIntersection(Set<Action> actions) {
+		Set<Set<InstLoad>> allTokens = new HashSet<Set<InstLoad>>();
+		for (Action a : actions){
+			Set<InstLoad> tokens = getReadTokens(a);
+			allTokens.add(tokens);
+		}
+		return getIntersection(allTokens);
+	}
+
+	/**
+	 * Get the load instructions belonging to the scheduler of each action of an actor
+	 * @param actor
+	 * @return a Map from action to a set of Instructions
+	 */
+	private Set<InstLoad> getReadTokens(Action action) {
+		Set<InstLoad> tokens = new HashSet<InstLoad>();
+		for(Block b : action.getScheduler().getBlocks()) {
+			if (b.isBlockBasic()) {
+				BlockBasic bb = (BlockBasic) b;
+				for (Instruction i : bb.getInstructions()) {
+					if (i instanceof InstLoadImpl) {
+						tokens.add((InstLoad) i);
+					}
+				}
+			}
+		}
+		return tokens;
+	}
+
+	/**
+	 * Get the set intersection. Given a set of Sets, this function determines
+	 * the intersection of all Sets and returns the elements in the intersection
+	 *
+	 * @param s a set of Sets
+	 * @return a set representing the intersection of the values of the Sets
+	 */
+	private Set<InstLoad> getIntersection(Set<Set<InstLoad>> s){
+		Iterator<Set<InstLoad>> it = s.iterator();
+		if (it.hasNext()) {
+			Set<InstLoad> result = new HashSet<InstLoad>(it.next());
+			while (it.hasNext()) {
+				Set<InstLoad> others = it.next();
+				result = intersect(result, others, new InstLoadComparator());
+			}
+			return result;
+		} else {
+			return null;
+		}
+	}
+
+	/**
+	 * Intersect the set i and o
+	 * @param i
+	 * @param o
+	 * @return
+	 */
+	private Set<InstLoad> intersect(Set<InstLoad> i, Set<InstLoad> o, Comparator<InstLoad> comparator) {
+		Set<InstLoad> intersection = new HashSet<InstLoad>();
+		for (InstLoad inst1 : i) {
+			for (InstLoad inst2 : o) {
+				if (comparator.compare(inst1, inst2) == 0) {
+					intersection.add(inst1);
+				}
+			}
+		}
+		return intersection;
+	}
+
+	/**
+	 * Determine whether constraints of nodes left and right
+	 * are simultaneously satisfiable
+	 *
+	 * @param left
+	 * @param right
+	 * @return true if satisfiable, false if mutually exclusive
+	 */
+	private boolean sat(SeqTreeNode left, SeqTreeNode right) {
+		// Clone existing actions
+		Action leftAction = IrUtil.copy(left.getActions().iterator().next());
+		Action rightAction = IrUtil.copy(right.getActions().iterator().next());
+
+		left.getConstraints().setConstraint(leftAction);
+		right.getConstraints().setConstraint(rightAction);
+		//System.out.println("Checking sat of " + left.getActions().toString() + " and " + right.getActions().toString());
+		//System.out.println("Left constraints:" + left.getConstraints().toInstruction().toString());
+		//System.out.println("Right constraints:" + right.getConstraints().toInstruction().toString());
+		return satChecker.checkSat(leftAction, rightAction);
+	}
+
+	private boolean sat(SeqTreeNode node) {
+		Action action = IrUtil.copy(node.getActions().iterator().next());
+		node.getConstraints().setConstraint(action);
+
+		//System.out.println("Checking sat of " + action.getName() + " (" + node.getActions().toString() + ")");
+		//System.out.println("Constraints:" + node.getConstraints().toInstruction().toString());
+		return satChecker.checkSat(action);
+	}
+
+	/**
+	 * Recursively construct port peek sequence.
+	 * @param current
+	 */
+	private SeqTreeNode addChildren(SeqTreeNode current) {
+		Set<Action> actions = current.getActions();
+		Set<InstLoad> intersection = getTokenIntersection(actions);
+		intersection.removeAll(current.getProcessed());
+		if (!intersection.isEmpty()){
+			Set<Instruction> processed = new HashSet<Instruction>(current.getProcessed());
+			processed.addAll(intersection);
+			for (Action a: actions) {
+				SeqTreeNode node = new SeqTreeNode(new GuardConstraint(a,intersection), a, processed);
+				insertChildNode(current, node);
+			}
+			for (SeqTreeNode child : current.getChildren()) {
+				if (addChildren(child) == null) {
+					return null;
+				}
+			}
+		} else {
+			if (actions.size() != 1){
+				OrccLogger.noticeln("Actions " + actions.toString() + " are not mutually exclusive");
+				return null;
+			}
+		}
+		return current;
+	}
+
+	private void insertChildNode(SeqTreeNode current, SeqTreeNode node) {
+		List<SeqTreeNode> children = current.getChildren();
+		if (children.isEmpty()) {
+			current.addChild(node);
+		} else {
+			boolean unsat = true;
+			for (SeqTreeNode child : current.getChildren()) {
+				if (sat(node, child) == true) {
+					unsat = false;
+					Set<SeqTreeNode> nodes = resolve(node, child);
+					current.removeChild(child);
+					for (SeqTreeNode n : nodes) {
+						insertChildNode(current, n);
+					}
+					break;
+				}
+			}
+			if (unsat == true) {
+				current.addChild(node);
+			}
+		}
+	}
+
+	/**
+	 * Resolve overlapping constraints between left and right, returning
+	 * three nodes which have mutually exclusive constraints
+	 *
+	 * @param left
+	 * @param right
+	 * @return set of nodes with mutually exclusive constraints
+	 */
+	private Set<SeqTreeNode> resolve(SeqTreeNode left, SeqTreeNode right) {
+		GuardConstraint intersect = left.getConstraints().intersect(right.getConstraints());
+		GuardConstraint leftConst = left.getConstraints().difference(right.getConstraints());
+		GuardConstraint rightConst = right.getConstraints().difference(left.getConstraints());
+		Set<SeqTreeNode> nodes = new HashSet<SeqTreeNode>();
+		Set<Instruction> processed = left.getProcessed();
+
+		Set<Action> actions = new HashSet<Action>(left.getActions());
+		actions.addAll(right.getActions());
+		SeqTreeNode n;
+		n = new SeqTreeNode(intersect, actions, processed);
+		if (sat(n)) {
+			nodes.add(n);
+		}
+		n = new SeqTreeNode(leftConst, left.getActions(), processed);
+		if (sat(n)) {
+			nodes.add(n);
+		}
+		n = new SeqTreeNode(rightConst, right.getActions(), processed);
+		if (sat(n)) {
+			nodes.add(n);
+		}
+		return nodes;
+	}
+
 
 	private void inspectState(Actor actor, State srcState) {
 		List<Action> actions = new ArrayList<Action>();
@@ -78,10 +291,11 @@ public class KPNValidator {
 	}
 
 	private void inspectActionList(Actor actor, List<Action> actions, boolean actorLevel) {
-		for (Action first : actions) {
-			for (Action second : actions) {
-				comparePatterns(actor, first, second, actorLevel);
-			}
+		SeqTreeNode root = getPeekSequence(actor, actions);
+		if (root == null) {
+			OrccLogger.warnln("No peek sequence for actor: " + actor.getName() + ": " + actions.toString());
+		} else {
+			OrccLogger.noticeln("Peek sequence found for actor: " + actor.getName() + ": " + actions.toString());
 		}
 	}
 
