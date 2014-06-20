@@ -7,10 +7,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
+import net.sf.orcc.OrccRuntimeException;
 import net.sf.orcc.df.Action;
+import net.sf.orcc.df.Tag;
 import net.sf.orcc.ir.Block;
 import net.sf.orcc.ir.BlockBasic;
 import net.sf.orcc.ir.ExprBinary;
+import net.sf.orcc.ir.ExprUnary;
 import net.sf.orcc.ir.ExprVar;
 import net.sf.orcc.ir.Expression;
 import net.sf.orcc.ir.InstAssign;
@@ -23,6 +26,7 @@ import net.sf.orcc.ir.OpUnary;
 import net.sf.orcc.ir.Procedure;
 import net.sf.orcc.ir.Var;
 import net.sf.orcc.ir.impl.IrFactoryImpl;
+import net.sf.orcc.ir.util.AbstractIrVisitor;
 import net.sf.orcc.ir.util.IrUtil;
 
 /**
@@ -47,8 +51,8 @@ public class GuardConstraint {
 
 	public GuardConstraint(GuardConstraint g) {
 		this.instructions = new ArrayList<Instruction>(IrUtil.copy(g.instructions));
-		this.name = g.name;
 		setInstructions(this.instructions);
+		this.name = g.name;
 	}
 
 	/**
@@ -77,12 +81,10 @@ public class GuardConstraint {
 					}
 				}
 				for (Instruction i : ((BlockBasic) b).getInstructions()) {
-					if (i instanceof InstAssign && ((InstAssign)i).getValue() instanceof ExprBinary) {
-						ExprBinary constExpr = keepConstraints(((ExprBinary)((InstAssign)i).getValue()), vars);
-						if (constExpr != null) {
-							((InstAssign) i).setValue(constExpr);
-							constInst.add(i);
-						}
+					if (i instanceof InstAssign) {
+						Expression removedVars = new VarRemover(vars).doSwitch(((InstAssign) i).getValue());
+						((InstAssign) i).setValue(removedVars);
+						constInst.add(i);
 					} else if (i instanceof InstReturn) {
 						constInst.add(i);
 					}
@@ -90,7 +92,86 @@ public class GuardConstraint {
 			}
 		}
 		this.instructions = constInst;
+		setInstructions(this.instructions);
 		this.name = a.getName();
+	}
+
+	/**
+	 * Removes occurrences of Var in an Expression tree, returning
+	 * the resulting expression.
+	 *
+	 * @author James Guthrie
+	 *
+	 */
+	private class VarRemover extends AbstractIrVisitor<Expression> {
+
+		private List<Var> vars;
+		private Expression empty;
+		private IrFactory irFactory;
+
+		/**
+		 * Creates an instance of the remover with the <code>Var</code> instances
+		 * to remove stored in vars.
+		 *
+		 * @param vars The vars to remove from the expression tree
+		 */
+		VarRemover(Collection<? extends Var> vars) {
+			super(true);
+			this.vars = new ArrayList<Var>(vars);
+			irFactory = new IrFactoryImpl();
+			empty = irFactory.createExprBool(true);
+		}
+
+		@Override
+		public Expression caseExpression(Expression expr) {
+			return expr;
+		}
+
+		@Override
+		public Expression caseExprVar(ExprVar exprVar) {
+			if (!vars.contains(exprVar.getUse().getVariable())){
+				return empty;
+			} else {
+				return exprVar;
+			}
+		}
+
+		@Override
+		public Expression caseExprBinary(ExprBinary exprBinary) {
+			Expression left = doSwitch(exprBinary.getE1());
+			Expression right = doSwitch(exprBinary.getE2());
+			Expression nonNull = null;
+			if (left == empty) {
+				if (right == empty) {
+					return empty;
+				}
+				nonNull = right;
+			} else if (right == empty) {
+				nonNull = left;
+			}
+			if (nonNull == null) {
+				return irFactory.createExprBinary(left, exprBinary.getOp(), right, exprBinary.getType());
+			} else {
+				switch (exprBinary.getOp()) {
+				case LOGIC_AND:
+				case LOGIC_OR:
+					return nonNull;
+				default:
+					return empty;
+				}
+			}
+		}
+
+		@Override
+		public Expression caseExprUnary(ExprUnary exprUnary) {
+			Expression expr = doSwitch(exprUnary.getExpr());
+			if (expr == empty) {
+				return irFactory.createExprBool(true);
+			} else {
+				exprUnary.setExpr(expr);
+				return exprUnary;
+			}
+		}
 	}
 
 	private void setInstructions(List<Instruction> instructions) {
@@ -105,55 +186,9 @@ public class GuardConstraint {
 				this.compute = IrUtil.copy((InstAssign) i);
 				count++;
 				if (count > 1) {
-					System.out.println("cannot handle multiple compute instructions yet");
+					throw new OrccRuntimeException("Cannot handle multiple compute instructions");
 				}
 			}
-		}
-	}
-
-	/**
-	 * Given a binary expression tree, remove all expressions which
-	 * operate on variables which are not defined in vars
-	 */
-	private ExprBinary keepConstraints(ExprBinary constraints, Set<Var> vars) {
-		Expression e1 = constraints.getE1();
-		Expression e2 = constraints.getE2();
-		ExprBinary eb1, eb2;
-		if (e1 instanceof ExprBinary && e2 instanceof ExprBinary && constraints.getOp().compareTo(OpBinary.LOGIC_AND) == 0) {
-			eb1 = keepConstraints((ExprBinary) e1, vars);
-			eb2 = keepConstraints((ExprBinary) e2, vars);
-			if (eb1 == null) {
-				if (eb2 == null) {
-					return null;
-				} else {
-					return eb2;
-				}
-			} else {
-				if (eb2 == null){
-					return eb1;
-				} else {
-					return constraints;
-				}
-			}
-		} else {
-			if (e1 instanceof ExprVar) {
-				for (Var v : vars) {
-					if (((ExprVar) e1).getUse().getVariable().getName().equals(v.getName())){
-						return constraints;
-					}
-				}
-				return null;
-			}
-			if (e2 instanceof ExprVar) {
-				for (Var v : vars) {
-					if (((ExprVar) e2).getUse().getVariable().getName().equals(v.getName())){
-						return constraints;
-					}
-				}
-				return null;
-			}
-			System.out.println("Unable to handle operator: " + constraints.getOp().toString());
-			return null;
 		}
 	}
 
@@ -172,13 +207,6 @@ public class GuardConstraint {
 		IrFactory irFactory = new IrFactoryImpl();
 		Expression thisVal = IrUtil.copy(this.compute.getValue());
 		Expression otherVal = IrUtil.copy(other.compute.getValue());
-
-		/*for (InstLoad l : this.loads) {
-			Var v = l.getSource().getVariable();
-			for (InstLoad o : other.loads) {
-				new VisitReplaceVar(v).doSwitch(o);
-			}
-		}*/
 
 		ExprBinary newVal = irFactory.createExprBinary(thisVal, OpBinary.LOGIC_AND, otherVal, irFactory.createTypeBool());
 
@@ -232,6 +260,11 @@ public class GuardConstraint {
 	 */
 	public void setConstraint(Action action) {
 		List<Instruction> instructions = new ArrayList<Instruction>();
+		for (InstLoad i : this.loads) {
+			if (i.getSource().getVariable().isGlobal()) {
+				instructions.add(i);
+			}
+		}
 		// Keep everything except for the new InstAssign
 		for (Block b : action.getScheduler().getBlocks()) {
 			if (b instanceof BlockBasic) {
@@ -250,5 +283,34 @@ public class GuardConstraint {
 		lbb.getInstructions().addAll(instructions);
 		sched.getBlocks().add(lbb);
 		action.setScheduler(sched);
+		Tag t = IrUtil.copy(action.getTag());
+		t.add(this.name);
+		action.setTag(t);
+	}
+
+	/**
+	 * Whether the constraints in this are equivalent to those
+	 * in action.
+	 *
+	 * @param action
+	 * @return
+	 */
+	public boolean equivalent(Action action) {
+		Set<InstLoad> loads = new TreeSet<InstLoad>(new InstLoadComparator());
+		for (Block b : action.getScheduler().getBlocks()) {
+			if (b instanceof BlockBasic) {
+				for (Instruction i : ((BlockBasic) b).getInstructions()) {
+					if (i instanceof InstLoad) {
+						loads.add((InstLoad) i);
+					}
+				}
+			}
+		}
+		loads.removeAll(this.loads);
+		if (loads.size() == 0) {
+			return true;
+		} else {
+			return false;
+		}
 	}
 }
