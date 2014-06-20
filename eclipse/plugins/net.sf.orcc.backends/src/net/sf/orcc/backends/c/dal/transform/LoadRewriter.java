@@ -8,6 +8,7 @@ import net.sf.orcc.df.Actor;
 import net.sf.orcc.df.Network;
 import net.sf.orcc.df.util.DfVisitor;
 import net.sf.orcc.ir.Def;
+import net.sf.orcc.ir.ExprBinary;
 import net.sf.orcc.ir.ExprInt;
 import net.sf.orcc.ir.ExprVar;
 import net.sf.orcc.ir.Expression;
@@ -29,6 +30,38 @@ public class LoadRewriter extends DfVisitor<Void> {
 
 	private Map<String, String> oldToNew = new HashMap<String, String>();
 
+	private class ReNamer extends AbstractIrVisitor<String> {
+
+		ReNamer() {
+			super(true);
+		}
+
+		@Override
+		public String caseExpression(Expression expr) {
+			System.out.println("unhandled expr: " + expr);
+			return "";
+		}
+
+		@Override
+		public String caseExprVar(ExprVar exprVar) {
+			return exprVar.getUse().getVariable().getName();
+		}
+
+		@Override
+		public String caseExprInt(ExprInt exprInt) {
+			return "" + exprInt.getIntValue();
+		}
+
+		@Override
+		public String caseExprBinary(ExprBinary exprBinary) {
+			String join = "";
+			String left = doSwitch(exprBinary.getE1());
+			String right = doSwitch(exprBinary.getE2());
+			join = exprBinary.getOp().toString().toLowerCase();
+			return left + "_" + join + "_" + right;
+		}
+	}
+
 	private class IrVisitor extends AbstractIrVisitor<Void> {
 		IrVisitor() {
 			super(true);
@@ -36,16 +69,10 @@ public class LoadRewriter extends DfVisitor<Void> {
 
 		@Override
 		public Void caseInstLoad(InstLoad load){
-			String loadIndexes = load.getIndexes().isEmpty() ? "" : "_";
+			String newName = "local_" + load.getSource().getVariable().getName();
 			for (Expression e : load.getIndexes()) {
-				if (e instanceof ExprInt) {
-					loadIndexes += ((ExprInt) e).getIntValue();
-				} else {
-					loadIndexes += e.toString();
-					System.out.println("Unhandled type: " + e.getClass());
-				}
+				newName += "_" + new ReNamer().doSwitch(e);
 			}
-			String newName = "local_" + load.getSource().getVariable().getName() + loadIndexes;
 			Def target = load.getTarget();
 			Var variable = target.getVariable();
 			String oldName = variable.getName();
