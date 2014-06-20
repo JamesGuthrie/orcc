@@ -8,7 +8,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 import net.sf.orcc.df.Action;
-import net.sf.orcc.ir.Instruction;
+import net.sf.orcc.ir.InstLoad;
 
 /**
  * A node in the peek sequence tree.
@@ -20,10 +20,10 @@ public class SeqTreeNode{
 
 	private GuardConstraint constraints;
 	private Set<Action> actions;
-	private Set<Instruction> processed;
+	private Set<InstLoad> processed;
 	private List<SeqTreeNode> children;
 
-	SeqTreeNode(GuardConstraint constraints, Set<Action> actions, Set<Instruction> tokens){
+	SeqTreeNode(GuardConstraint constraints, Set<Action> actions, Set<InstLoad> tokens){
 		this.setConstraints(constraints);
 		this.setProcessed(tokens);
 		this.actions = new HashSet<Action>(actions);
@@ -32,12 +32,12 @@ public class SeqTreeNode{
 
 	SeqTreeNode(Collection<Action> actions){
 		this.constraints = null;
-		this.processed = new HashSet<Instruction>();
+		this.processed = new TreeSet<InstLoad>(new InstLoadComparator());
 		this.actions = new HashSet<Action>(actions);
 		this.children = new ArrayList<SeqTreeNode>();
 	}
 
-	SeqTreeNode(GuardConstraint constraints, Action action, Set<Instruction> tokens){
+	SeqTreeNode(GuardConstraint constraints, Action action, Set<InstLoad> tokens){
 		this.setConstraints(constraints);
 		this.setProcessed(tokens);
 		this.actions = new TreeSet<Action>();
@@ -56,12 +56,14 @@ public class SeqTreeNode{
 		this.constraints = new GuardConstraint(constraints);
 	}
 
-	public Set<Instruction> getProcessed() {
+	public Set<InstLoad> getProcessed() {
 		return this.processed;
 	}
 
-	public void setProcessed(Set<Instruction> processed) {
-		this.processed = new HashSet<Instruction>(processed);
+	public void setProcessed(Set<InstLoad> processed) {
+		Set<InstLoad> temp = new HashSet<InstLoad>(processed);
+		this.processed = new TreeSet<InstLoad>(new InstLoadComparator());
+		this.processed.addAll(temp);
 	}
 
 	public Set<Action> getActions(){
@@ -80,12 +82,12 @@ public class SeqTreeNode{
 		this.children.remove(child);
 	}
 
-	public void addChild(GuardConstraint constraints, Set<Instruction> tokens, Set<Action> actions){
+	public void addChild(GuardConstraint constraints, Set<InstLoad> tokens, Set<Action> actions){
 		SeqTreeNode child = new SeqTreeNode(constraints, actions, tokens);
 		this.children.add(child);
 	}
 
-	public void addChild(GuardConstraint constraints, Set<Instruction> tokens, Action action){
+	public void addChild(GuardConstraint constraints, Set<InstLoad> tokens, Action action){
 		Set<Action> s = new TreeSet<Action>();
 		s.add(action);
 		addChild(constraints, tokens, s);

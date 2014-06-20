@@ -6,13 +6,13 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 
 import net.sf.orcc.graph.Edge;
 import net.sf.orcc.ir.Block;
 import net.sf.orcc.ir.BlockBasic;
 import net.sf.orcc.ir.InstLoad;
 import net.sf.orcc.ir.Instruction;
-import net.sf.orcc.ir.impl.InstLoadImpl;
 import net.sf.orcc.ir.util.IrUtil;
 import net.sf.orcc.tools.classifier.GuardSatChecker;
 import net.sf.orcc.util.OrccLogger;
@@ -117,7 +117,7 @@ public class KPNValidator {
 			if (b.isBlockBasic()) {
 				BlockBasic bb = (BlockBasic) b;
 				for (Instruction i : bb.getInstructions()) {
-					if (i instanceof InstLoadImpl) {
+					if (i instanceof InstLoad) {
 						tokens.add((InstLoad) i);
 					}
 				}
@@ -204,7 +204,7 @@ public class KPNValidator {
 		Set<InstLoad> intersection = getTokenIntersection(actions);
 		intersection.removeAll(current.getProcessed());
 		if (!intersection.isEmpty()){
-			Set<Instruction> processed = new HashSet<Instruction>(current.getProcessed());
+			Set<InstLoad> processed = new TreeSet<InstLoad>(new InstLoadComparator());
 			processed.addAll(intersection);
 			for (Action a: actions) {
 				SeqTreeNode node = new SeqTreeNode(new GuardConstraint(a,intersection), a, processed);
@@ -260,7 +260,7 @@ public class KPNValidator {
 		GuardConstraint leftConst = left.getConstraints().difference(right.getConstraints());
 		GuardConstraint rightConst = right.getConstraints().difference(left.getConstraints());
 		Set<SeqTreeNode> nodes = new HashSet<SeqTreeNode>();
-		Set<Instruction> processed = left.getProcessed();
+		Set<InstLoad> processed = left.getProcessed();
 
 		Set<Action> actions = new HashSet<Action>(left.getActions());
 		actions.addAll(right.getActions());
