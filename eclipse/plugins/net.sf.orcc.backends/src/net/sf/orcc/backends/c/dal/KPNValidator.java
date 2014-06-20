@@ -2,9 +2,11 @@ package net.sf.orcc.backends.c.dal;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -34,16 +36,23 @@ import net.sf.orcc.df.Network;
  */
 public class KPNValidator {
 
+	private GuardSatChecker satChecker;
+	private Map<State, SeqTreeNode> stateToRoot;
+
+	public KPNValidator(){
+		stateToRoot = new HashMap<State, SeqTreeNode>();
+	}
+
 	public void validate(Network network) {
 		for (Actor actor : network.getAllActors()) {
 			if (actor.hasFsm()) {
 				for (State state : actor.getFsm().getStates()) {
-					if (state.getOutgoing().size() > 1) {
+					if (state.getOutgoing().size() >= 1) {
 						inspectState(actor, state);
 					}
 				}
 			} else {
-				if (actor.getActions().size() > 1) {
+				if (actor.getActions().size() >= 1) {
 					inspectActionList(actor, actor.getActions(), false);
 				}
 			}
@@ -82,48 +91,10 @@ public class KPNValidator {
 		}
 	}
 
-	private GuardSatChecker satChecker;
-
 	private SeqTreeNode getPeekSequence(Actor actor, List<Action> actions) {
 		satChecker = new GuardSatChecker(actor);
 		SeqTreeNode root = new SeqTreeNode(actions);
 		return addChildren(root);
-	}
-
-	/**
-	 * Given a set of tokens, return a set of Instruction sets, one set of
-	 * Instructions for each action in actions
-	 *
-	 * @param actions
-	 * @return
-	 */
-	private Set<InstLoad> getTokenIntersection(Set<Action> actions) {
-		Set<Set<InstLoad>> allTokens = new HashSet<Set<InstLoad>>();
-		for (Action a : actions){
-			Set<InstLoad> tokens = getReadTokens(a);
-			allTokens.add(tokens);
-		}
-		return getIntersection(allTokens);
-	}
-
-	/**
-	 * Get the load instructions belonging to the scheduler of each action of an actor
-	 * @param actor
-	 * @return a Map from action to a set of Instructions
-	 */
-	private Set<InstLoad> getReadTokens(Action action) {
-		Set<InstLoad> tokens = new HashSet<InstLoad>();
-		for(Block b : action.getScheduler().getBlocks()) {
-			if (b.isBlockBasic()) {
-				BlockBasic bb = (BlockBasic) b;
-				for (Instruction i : bb.getInstructions()) {
-					if (i instanceof InstLoad) {
-						tokens.add((InstLoad) i);
-					}
-				}
-			}
-		}
-		return tokens;
 	}
 
 	/**
@@ -174,24 +145,22 @@ public class KPNValidator {
 	 * @return true if satisfiable, false if mutually exclusive
 	 */
 	private boolean sat(SeqTreeNode left, SeqTreeNode right) {
+		//OrccLogger.noticeln("\t\tChecking sat of " + left.getActions().toString() + " and " + right.getActions().toString());
 		// Clone existing actions
 		Action leftAction = IrUtil.copy(left.getActions().iterator().next());
 		Action rightAction = IrUtil.copy(right.getActions().iterator().next());
-
+		// Set constraints of cloned actions
 		left.getConstraints().setConstraint(leftAction);
 		right.getConstraints().setConstraint(rightAction);
-		//System.out.println("Checking sat of " + left.getActions().toString() + " and " + right.getActions().toString());
-		//System.out.println("Left constraints:" + left.getConstraints().toInstruction().toString());
-		//System.out.println("Right constraints:" + right.getConstraints().toInstruction().toString());
 		return satChecker.checkSat(leftAction, rightAction);
 	}
 
 	private boolean sat(SeqTreeNode node) {
+		//OrccLogger.noticeln("\t\tChecking sat of " + node.getActions().toString());
+		// Clone existing action
 		Action action = IrUtil.copy(node.getActions().iterator().next());
+		// Set constraints of cloned action
 		node.getConstraints().setConstraint(action);
-
-		//System.out.println("Checking sat of " + action.getName() + " (" + node.getActions().toString() + ")");
-		//System.out.println("Constraints:" + node.getConstraints().toInstruction().toString());
 		return satChecker.checkSat(action);
 	}
 
@@ -200,11 +169,13 @@ public class KPNValidator {
 	 * @param current
 	 */
 	private SeqTreeNode addChildren(SeqTreeNode current) {
+		//OrccLogger.noticeln("\tAdding children to node: " + current.getActions().toString() + " processed " + current.getProcessed().toString());
 		Set<Action> actions = current.getActions();
-		Set<InstLoad> intersection = getTokenIntersection(actions);
+		Set<InstLoad> intersection = getNextReadTokens(actions);
 		intersection.removeAll(current.getProcessed());
 		if (!intersection.isEmpty()){
 			Set<InstLoad> processed = new TreeSet<InstLoad>(new InstLoadComparator());
+			processed.addAll(current.getProcessed());
 			processed.addAll(intersection);
 			for (Action a: actions) {
 				SeqTreeNode node = new SeqTreeNode(new GuardConstraint(a,intersection), a, processed);
@@ -217,13 +188,95 @@ public class KPNValidator {
 			}
 		} else {
 			if (actions.size() != 1){
-				OrccLogger.noticeln("Actions " + actions.toString() + " are not mutually exclusive");
-				return null;
+				for (Action action : actions) {
+					if ((current.getConstraints() == null) || !current.getConstraints().equivalent(action)){
+						OrccLogger.noticeln("\t\tActions " + actions.toString() + " are not mutually exclusive");
+						return null;
+					}
+				}
+				//OrccLogger.noticeln("\t\tAction priority can be used to resolve conflict.");
 			}
 		}
 		return current;
 	}
 
+	/**
+	 * Get the load instructions which can be read by all actions in a DAL KPN.
+	 * This is the intersection of the input channel loads of all actions and
+	 * the union of global variable loads of all actions
+	 *
+	 * @param actions
+	 * @return
+	 */
+	private Set<InstLoad> getNextReadTokens(Set<Action> actions) {
+		Set<InstLoad> localTokens = new TreeSet<InstLoad>(new InstLoadComparator());
+		Set<Set<InstLoad>> allTokens = new HashSet<Set<InstLoad>>();
+		for (Action a : actions){
+			localTokens.addAll(getGlobalTokens(a));
+			Set<InstLoad> tokens = getInputTokens(a);
+			allTokens.add(tokens);
+		}
+		Set<InstLoad> nextRead = getIntersection(allTokens);
+		nextRead.addAll(localTokens);
+		return nextRead;
+	}
+
+	/**
+	 * Get load instructions belonging to the scheduler of action which
+	 * read from global variables.
+	 *
+	 * @param action
+	 * @return A Set of load instructions
+	 */
+	private Set<InstLoad> getGlobalTokens(Action action) {
+		Set<InstLoad> localTokens = new TreeSet<InstLoad>(new InstLoadComparator());
+		for (Block b : action.getScheduler().getBlocks()) {
+			if (b instanceof BlockBasic) {
+				for (Instruction i : ((BlockBasic) b).getInstructions()) {
+					if (i instanceof InstLoad) {
+						InstLoad iLoad = (InstLoad) i;
+						if (iLoad.getSource().getVariable().isGlobal()) {
+							localTokens.add(iLoad);
+						}
+					}
+				}
+			}
+		}
+		return localTokens;
+	}
+
+	/**
+	 * Get the load instructions belonging to the scheduler of action which
+	 * read from input channels to the actor.
+	 *
+	 * @param actor
+	 * @return A Set of load instructions
+	 */
+	private Set<InstLoad> getInputTokens(Action action) {
+		Set<InstLoad> tokens = new HashSet<InstLoad>();
+		for(Block b : action.getScheduler().getBlocks()) {
+			if (b.isBlockBasic()) {
+				BlockBasic bb = (BlockBasic) b;
+				for (Instruction i : bb.getInstructions()) {
+					if (i instanceof InstLoad) {
+						if (!((InstLoad)i).getSource().getVariable().isGlobal()){
+							tokens.add((InstLoad) i);
+						}
+					}
+				}
+			}
+		}
+		return tokens;
+	}
+
+	/**
+	 * Insert node as a child of current, if the constraints of node are sat
+	 * with the constraints of an existing child, the two nodes are resolved
+	 * and replaced with child nodes with mutually exclusive constraints.
+	 *
+	 * @param current
+	 * @param node
+	 */
 	private void insertChildNode(SeqTreeNode current, SeqTreeNode node) {
 		List<SeqTreeNode> children = current.getChildren();
 		if (children.isEmpty()) {
@@ -249,7 +302,7 @@ public class KPNValidator {
 
 	/**
 	 * Resolve overlapping constraints between left and right, returning
-	 * three nodes which have mutually exclusive constraints
+	 * nodes which have mutually exclusive constraints
 	 *
 	 * @param left
 	 * @param right
@@ -282,57 +335,31 @@ public class KPNValidator {
 
 
 	private void inspectState(Actor actor, State srcState) {
+		//OrccLogger.noticeln("[" + actor.getName() + "]: Inspecting state: " + srcState.toString());
 		List<Action> actions = new ArrayList<Action>();
 		for (Edge edge : srcState.getOutgoing()) {
 			actions.add(((Transition) edge).getAction());
 		}
 		actions.addAll(actor.getActionsOutsideFsm());
-		inspectActionList(actor, actions, false);
+		SeqTreeNode root = inspectActionList(actor, actions, false);
+		stateToRoot.put(srcState, root);
 	}
 
-	private void inspectActionList(Actor actor, List<Action> actions, boolean actorLevel) {
+	private SeqTreeNode inspectActionList(Actor actor, List<Action> actions, boolean actorLevel) {
+		//OrccLogger.noticeln("[" + actor.getName() + "]: Getting peek sequence for : " + actions.toString());
 		SeqTreeNode root = getPeekSequence(actor, actions);
 		if (root == null) {
 			OrccLogger.warnln("No peek sequence for actor: " + actor.getName() + ": " + actions.toString());
 		} else {
 			OrccLogger.noticeln("Peek sequence found for actor: " + actor.getName() + ": " + actions.toString());
 		}
+		return root;
 	}
 
 	private void analyzeOutputPorts(Actor actor, List<Action> actions) {
 		for (Action first : actions) {
 			for (Action second : actions) {
 				compareOutputPatterns(actor, first, second);
-			}
-		}
-	}
-
-	private void comparePatterns(Actor actor, Action firstAction, Action secondAction, boolean actorLevel) {
-		Pattern first = firstAction.getInputPattern();
-		Pattern second = secondAction.getInputPattern();
-		for(Port port : first.getPorts()) {
-			int firstTokenRate = first.getNumTokensMap().get(port);
-			port.setNumTokensConsumed(firstTokenRate);
-			if (second.getNumTokensMap().get(port) != null) {
-				int secondTokenRate = second.getNumTokensMap().get(port);
-				if (firstTokenRate != secondTokenRate) {
-					if (!actorLevel) {
-						OrccLogger.warnln("(" + actor.getName() + ") actions '" + firstAction.getName() + "' and '" + secondAction.getName() +
-								"'\n have different token rate for port '" + port.getName() + "' Application may deadlock.");
-						port.setNumTokensConsumed(-1);
-					}
-				} 
-			} else {
-				if (second.getNumTokensMap().size() > 0) {
-					if (actorLevel) {
-						if (!actor.hasAttribute("variableInputPattern")) {
-							actor.addAttribute("variableInputPattern");
-						}
-					} else {
-						OrccLogger.warnln("(" + actor.getName() + ") action '" + firstAction.getName() + "' reads port '"  + port.getName() +
-								"'\n but action '"+ secondAction.getName() + "' does not. Application may deadlock.");
-					}
-				}
 			}
 		}
 	}
