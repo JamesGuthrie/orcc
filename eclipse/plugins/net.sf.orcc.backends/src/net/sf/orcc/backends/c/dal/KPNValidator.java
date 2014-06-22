@@ -24,16 +24,26 @@ public class KPNValidator {
 
 	public void validate(Network network) {
 		for (Actor actor : network.getAllActors()) {
+			boolean isKPN = true;
 			if (actor.hasFsm()) {
 				for (State state : actor.getFsm().getStates()) {
-					if (state.getOutgoing().size() > 1) {
-						inspectState(actor, state);
+					if (state.getOutgoing().size() >= 1) {
+						if (inspectState(actor, state) == false) {
+							isKPN = false;
+						}
 					}
 				}
 			} else {
-				if (actor.getActions().size() > 1) {
-					inspectActionList(actor, actor.getActions(), false);
+				if (actor.getActions().size() >= 1) {
+					if (inspectActionList(actor, actor.getActions(), false) == false) {
+						isKPN = false;
+					}
 				}
+			}
+			if (isKPN == true) {
+				OrccLogger.noticeln("Actor [" + actor.getName() + "] is KPN");
+			} else {
+				OrccLogger.noticeln("Actor [" + actor.getName() + "] is not KPN");
 			}
 		}
 	}
@@ -68,21 +78,25 @@ public class KPNValidator {
 		}
 	}
 
-	private void inspectState(Actor actor, State srcState) {
+	private boolean inspectState(Actor actor, State srcState) {
 		List<Action> actions = new ArrayList<Action>();
 		for (Edge edge : srcState.getOutgoing()) {
 			actions.add(((Transition) edge).getAction());
 		}
 		actions.addAll(actor.getActionsOutsideFsm());
-		inspectActionList(actor, actions, false);
+		return inspectActionList(actor, actions, false);
 	}
 
-	private void inspectActionList(Actor actor, List<Action> actions, boolean actorLevel) {
+	private boolean inspectActionList(Actor actor, List<Action> actions, boolean actorLevel) {
+		boolean isKPN = true;
 		for (Action first : actions) {
 			for (Action second : actions) {
-				comparePatterns(actor, first, second, actorLevel);
+				if (comparePatterns(actor, first, second, actorLevel) == false) {
+					isKPN = false;
+				}
 			}
 		}
+		return isKPN;
 	}
 
 	private void analyzeOutputPorts(Actor actor, List<Action> actions) {
@@ -93,9 +107,10 @@ public class KPNValidator {
 		}
 	}
 
-	private void comparePatterns(Actor actor, Action firstAction, Action secondAction, boolean actorLevel) {
+	private boolean comparePatterns(Actor actor, Action firstAction, Action secondAction, boolean actorLevel) {
 		Pattern first = firstAction.getInputPattern();
 		Pattern second = secondAction.getInputPattern();
+		boolean isKPN = true;
 		for(Port port : first.getPorts()) {
 			int firstTokenRate = first.getNumTokensMap().get(port);
 			port.setNumTokensConsumed(firstTokenRate);
@@ -103,9 +118,10 @@ public class KPNValidator {
 				int secondTokenRate = second.getNumTokensMap().get(port);
 				if (firstTokenRate != secondTokenRate) {
 					if (!actorLevel) {
-						OrccLogger.warnln("(" + actor.getName() + ") actions '" + firstAction.getName() + "' and '" + secondAction.getName() +
-								"'\n have different token rate for port '" + port.getName() + "' Application may deadlock.");
+						//OrccLogger.warnln("(" + actor.getName() + ") actions '" + firstAction.getName() + "' and '" + secondAction.getName() +
+						//		"'\n have different token rate for port '" + port.getName() + "' Application may deadlock.");
 						port.setNumTokensConsumed(-1);
+						isKPN = false;
 					}
 				} 
 			} else {
@@ -115,12 +131,14 @@ public class KPNValidator {
 							actor.addAttribute("variableInputPattern");
 						}
 					} else {
-						OrccLogger.warnln("(" + actor.getName() + ") action '" + firstAction.getName() + "' reads port '"  + port.getName() +
-								"'\n but action '"+ secondAction.getName() + "' does not. Application may deadlock.");
+						//OrccLogger.warnln("(" + actor.getName() + ") action '" + firstAction.getName() + "' reads port '"  + port.getName() +
+						//		"'\n but action '"+ secondAction.getName() + "' does not. Application may deadlock.");
+						isKPN = false;
 					}
 				}
 			}
 		}
+		return isKPN;
 	}
 
 	private void compareOutputPatterns(Actor actor, Action firstAction, Action secondAction) {
