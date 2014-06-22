@@ -250,6 +250,7 @@ public class SmtSolver {
 
 			ByteArrayOutputStream bos = new ByteArrayOutputStream();
 			PrintStream ps = new PrintStream(bos);
+
 			for (String command : script.getCommands()) {
 				ps.println(command);
 			}

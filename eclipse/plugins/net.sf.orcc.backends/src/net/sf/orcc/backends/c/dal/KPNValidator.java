@@ -2,11 +2,9 @@ package net.sf.orcc.backends.c.dal;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -37,24 +35,33 @@ import net.sf.orcc.df.Network;
 public class KPNValidator {
 
 	private GuardSatChecker satChecker;
-	private Map<State, SeqTreeNode> stateToRoot;
 
 	public KPNValidator(){
-		stateToRoot = new HashMap<State, SeqTreeNode>();
 	}
 
 	public void validate(Network network) {
 		for (Actor actor : network.getAllActors()) {
+			boolean isKPN = true;
 			if (actor.hasFsm()) {
 				for (State state : actor.getFsm().getStates()) {
-					if (state.getOutgoing().size() >= 1) {
-						inspectState(actor, state);
+					if (!inspectState(actor, state)) {
+						isKPN = false;
 					}
 				}
 			} else {
 				if (actor.getActions().size() >= 1) {
-					inspectActionList(actor, actor.getActions(), false);
+					SeqTreeNode root;
+					root = inspectActionList(actor, actor.getActions(), false);
+					actor.setAttribute("SequenceTreeRoot", root);
+					if (root == null) {
+						isKPN = false;
+					}
 				}
+			}
+			if (isKPN) {
+				OrccLogger.noticeln("Actor [" + actor.getName() + "] is KPN");
+			} else {
+				OrccLogger.noticeln("Actor [" + actor.getName() + "] is not KPN");
 			}
 		}
 	}
@@ -190,7 +197,7 @@ public class KPNValidator {
 			if (actions.size() != 1){
 				for (Action action : actions) {
 					if ((current.getConstraints() == null) || !current.getConstraints().equivalent(action)){
-						OrccLogger.noticeln("\t\tActions " + actions.toString() + " are not mutually exclusive");
+						OrccLogger.warnln("\t\tActions " + actions.toString() + " are not mutually exclusive");
 						return null;
 					}
 				}
@@ -334,15 +341,19 @@ public class KPNValidator {
 	}
 
 
-	private void inspectState(Actor actor, State srcState) {
-		//OrccLogger.noticeln("[" + actor.getName() + "]: Inspecting state: " + srcState.toString());
+	private boolean inspectState(Actor actor, State srcState) {
 		List<Action> actions = new ArrayList<Action>();
 		for (Edge edge : srcState.getOutgoing()) {
 			actions.add(((Transition) edge).getAction());
 		}
 		actions.addAll(actor.getActionsOutsideFsm());
 		SeqTreeNode root = inspectActionList(actor, actions, false);
-		stateToRoot.put(srcState, root);
+		srcState.setAttribute("SequenceTreeRoot", root);
+		if (root == null) {
+			return false;
+		} else {
+			return true;
+		}
 	}
 
 	private SeqTreeNode inspectActionList(Actor actor, List<Action> actions, boolean actorLevel) {
@@ -351,7 +362,7 @@ public class KPNValidator {
 		if (root == null) {
 			OrccLogger.warnln("No peek sequence for actor: " + actor.getName() + ": " + actions.toString());
 		} else {
-			OrccLogger.noticeln("Peek sequence found for actor: " + actor.getName() + ": " + actions.toString());
+			//OrccLogger.noticeln("Peek sequence found for actor: " + actor.getName() + ": " + actions.toString());
 		}
 		return root;
 	}
