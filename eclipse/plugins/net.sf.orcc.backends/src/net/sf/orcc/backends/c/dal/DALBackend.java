@@ -23,6 +23,7 @@ import org.eclipse.emf.ecore.util.EcoreUtil;
  * Distributed Application Layer
  * 
  * @author Jani Boutellier
+ * @author James Guthrie
  * 
  * Based on Orcc C backend
  */
@@ -44,6 +45,7 @@ public class DALBackend extends CBackend {
 				false);
 	}
 	
+	@Override
 	protected void doTransformNetwork(Network network) {
 		OrccLogger.traceln("Instantiating network...");
 		new Instantiator(false, fifoSize).doSwitch(network);
@@ -73,8 +75,8 @@ public class DALBackend extends CBackend {
 		new LoadRewriter().doSwitch(network);
 		
 		KPNValidator validator = new KPNValidator();
+		OrccLogger.traceln("Evaluating KPNness of actors...");
 		validator.validate(network);
-		validator.analyzeInputs(network);
 		validator.analyzeOutputs(network);
 
 		ActorOptimizer optimizer = new ActorOptimizer();
