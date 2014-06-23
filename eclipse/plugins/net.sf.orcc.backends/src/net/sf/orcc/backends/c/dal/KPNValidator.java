@@ -178,8 +178,17 @@ public class KPNValidator {
 	private SeqTreeNode addChildren(SeqTreeNode current) {
 		//OrccLogger.noticeln("\tAdding children to node: " + current.getActions().toString() + " processed " + current.getProcessed().toString());
 		Set<Action> actions = current.getActions();
-		Set<InstLoad> intersection = getNextReadTokens(actions);
-		intersection.removeAll(current.getProcessed());
+		Set<InstLoad> intersection = new HashSet<InstLoad>(getNextReadTokens(actions));
+		InstLoadComparator comp = new InstLoadComparator();
+		for (InstLoad i : current.getProcessed()) {
+			Iterator<InstLoad> interIter = intersection.iterator();
+			while (interIter.hasNext()) {
+				InstLoad o = interIter.next();
+				if (comp.compare(i, o) == 0) {
+					interIter.remove();
+				}
+			}
+		}
 		if (!intersection.isEmpty()){
 			Set<InstLoad> processed = new TreeSet<InstLoad>(new InstLoadComparator());
 			processed.addAll(current.getProcessed());
@@ -219,11 +228,13 @@ public class KPNValidator {
 		Set<InstLoad> localTokens = new TreeSet<InstLoad>(new InstLoadComparator());
 		Set<Set<InstLoad>> allTokens = new HashSet<Set<InstLoad>>();
 		for (Action a : actions){
-			localTokens.addAll(getGlobalTokens(a));
-			Set<InstLoad> tokens = getInputTokens(a);
-			allTokens.add(tokens);
+			Set<InstLoad> globalTokens = getGlobalTokens(a);
+			localTokens.addAll(globalTokens);
+			Set<InstLoad> inputTokens = getInputTokens(a);
+			allTokens.add(inputTokens);
 		}
-		Set<InstLoad> nextRead = getIntersection(allTokens);
+		Set<InstLoad> nextRead = new TreeSet<InstLoad>(new InstLoadComparator());
+		nextRead.addAll(getIntersection(allTokens));
 		nextRead.addAll(localTokens);
 		return nextRead;
 	}
