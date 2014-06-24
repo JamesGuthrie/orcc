@@ -1,7 +1,6 @@
 package net.sf.orcc.backends.c.dal;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -11,6 +10,7 @@ import java.util.TreeSet;
 import net.sf.orcc.graph.Edge;
 import net.sf.orcc.ir.Block;
 import net.sf.orcc.ir.BlockBasic;
+import net.sf.orcc.ir.InstCall;
 import net.sf.orcc.ir.InstLoad;
 import net.sf.orcc.ir.Instruction;
 import net.sf.orcc.ir.util.IrUtil;
@@ -111,13 +111,13 @@ public class KPNValidator {
 	 * @param s a set of Sets
 	 * @return a set representing the intersection of the values of the Sets
 	 */
-	private Set<InstLoad> getIntersection(Set<Set<InstLoad>> s){
-		Iterator<Set<InstLoad>> it = s.iterator();
+	private Set<Token> getIntersection(Set<Set<Token>> s){
+		Iterator<Set<Token>> it = s.iterator();
 		if (it.hasNext()) {
-			Set<InstLoad> result = new HashSet<InstLoad>(it.next());
+			Set<Token> result = new HashSet<Token>(it.next());
 			while (it.hasNext()) {
-				Set<InstLoad> others = it.next();
-				result = intersect(result, others, new InstLoadComparator());
+				Set<Token> others = it.next();
+				result = intersect(result, others);
 			}
 			return result;
 		} else {
@@ -131,11 +131,11 @@ public class KPNValidator {
 	 * @param o
 	 * @return
 	 */
-	private Set<InstLoad> intersect(Set<InstLoad> i, Set<InstLoad> o, Comparator<InstLoad> comparator) {
-		Set<InstLoad> intersection = new TreeSet<InstLoad>(comparator);
-		for (InstLoad inst1 : i) {
-			for (InstLoad inst2 : o) {
-				if (comparator.compare(inst1, inst2) == 0) {
+	private Set<Token> intersect(Set<Token> i, Set<Token> o) {
+		Set<Token> intersection = new TreeSet<Token>();
+		for (Token inst1 : i) {
+			for (Token inst2 : o) {
+				if (inst1.compareTo(inst2) == 0) {
 					intersection.add(inst1);
 				}
 			}
@@ -178,24 +178,22 @@ public class KPNValidator {
 	private SeqTreeNode addChildren(SeqTreeNode current) {
 		//OrccLogger.noticeln("\tAdding children to node: " + current.getActions().toString() + " processed " + current.getProcessed().toString());
 		Set<Action> actions = current.getActions();
-		Set<InstLoad> intersection = new HashSet<InstLoad>(getNextReadTokens(actions));
-		InstLoadComparator comp = new InstLoadComparator();
-		for (InstLoad i : current.getProcessed()) {
-			Iterator<InstLoad> interIter = intersection.iterator();
+		Set<Token> intersection = getNextReadTokens(actions);
+		for (Token t : current.getProcessed()) {
+			Iterator<Token> interIter = intersection.iterator();
 			while (interIter.hasNext()) {
-				InstLoad o = interIter.next();
-				if (comp.compare(i, o) == 0) {
+				Token o = interIter.next();
+				if (t.compareTo(o) == 0) {
 					interIter.remove();
 				}
 			}
 		}
 		if (!intersection.isEmpty()){
-			Set<InstLoad> processed = new HashSet<InstLoad>();
-			Comparator<InstLoad> comparator = new InstLoadComparator();
-			addAll(processed, current.getProcessed(), comparator);
-			addAll(processed, intersection, comparator);
+			Set<Token> processed = new HashSet<Token>();
+			addAll(processed, current.getProcessed());
+			addAll(processed, intersection);
 			for (Action a: actions) {
-				SeqTreeNode node = new SeqTreeNode(new GuardConstraint(a,intersection), a, processed);
+				SeqTreeNode node = new SeqTreeNode(new GuardConstraint(a, intersection), a, processed);
 				insertChildNode(current, node);
 			}
 			for (SeqTreeNode child : current.getChildren()) {
@@ -225,29 +223,28 @@ public class KPNValidator {
 	 * @param actions
 	 * @return
 	 */
-	private Set<InstLoad> getNextReadTokens(Set<Action> actions) {
-		Set<InstLoad> localTokens = new TreeSet<InstLoad>(new InstLoadComparator());
-		Set<Set<InstLoad>> allTokens = new HashSet<Set<InstLoad>>();
+	private Set<Token> getNextReadTokens(Set<Action> actions) {
+		Set<Token> theseTokens = new HashSet<Token>();
+		Set<Set<Token>> allTokens = new HashSet<Set<Token>>();
 		for (Action a : actions){
-			Set<InstLoad> globalTokens = getGlobalTokens(a);
-			localTokens.addAll(globalTokens);
-			Set<InstLoad> inputTokens = getInputTokens(a);
+			Set<Token> globalTokens = getGlobalTokens(a);
+			theseTokens.addAll(globalTokens);
+			Set<Token> inputTokens = getInputTokens(a);
 			allTokens.add(inputTokens);
 		}
-		Comparator<InstLoad> comparator = new InstLoadComparator();
-		Set<InstLoad> nextRead = new TreeSet<InstLoad>(comparator);
-		addAll(nextRead, getIntersection(allTokens), comparator);
-		addAll(nextRead, localTokens, comparator);
+		Set<Token> nextRead = new TreeSet<Token>();
+		addAll(nextRead, getIntersection(allTokens));
+		addAll(nextRead, theseTokens);
 		return nextRead;
 	}
 
-	private void addAll(Set<InstLoad> to, Set<InstLoad> from, Comparator<InstLoad> comparator) {
-		for (InstLoad i : from) {
-			Iterator<InstLoad> iter = to.iterator();
+	private void addAll(Set<Token> to, Set<Token> from) {
+		for (Token i : from) {
+			Iterator<Token> iter = to.iterator();
 			boolean contains = false;
 			while (iter.hasNext()) {
-				InstLoad next = iter.next();
-				if (comparator.compare(next, i) == 0) {
+				Token next = iter.next();
+				if (next.compareTo(i) == 0) {
 					contains = true;
 				}
 			}
@@ -264,15 +261,20 @@ public class KPNValidator {
 	 * @param action
 	 * @return A Set of load instructions
 	 */
-	private Set<InstLoad> getGlobalTokens(Action action) {
-		Set<InstLoad> localTokens = new TreeSet<InstLoad>(new InstLoadComparator());
+	private Set<Token> getGlobalTokens(Action action) {
+		Set<Token> localTokens = new HashSet<Token>();
 		for (Block b : action.getScheduler().getBlocks()) {
 			if (b instanceof BlockBasic) {
 				for (Instruction i : ((BlockBasic) b).getInstructions()) {
-					if (i instanceof InstLoad) {
-						InstLoad iLoad = (InstLoad) i;
-						if (iLoad.getSource().getVariable().isGlobal()) {
-							localTokens.add(iLoad);
+					if (i instanceof InstLoad || i instanceof InstCall) {
+						Token t;
+						if (i instanceof InstLoad) {
+							t = new LoadTokenImpl((InstLoad) i);
+						} else {
+							t = new CallTokenImpl((InstCall) i);
+						}
+						if (t.usesGlobal()) {
+							localTokens.add(t);
 						}
 					}
 				}
@@ -288,15 +290,21 @@ public class KPNValidator {
 	 * @param actor
 	 * @return A Set of load instructions
 	 */
-	private Set<InstLoad> getInputTokens(Action action) {
-		Set<InstLoad> tokens = new HashSet<InstLoad>();
+	private Set<Token> getInputTokens(Action action) {
+		Set<Token> tokens = new HashSet<Token>();
 		for(Block b : action.getScheduler().getBlocks()) {
 			if (b.isBlockBasic()) {
 				BlockBasic bb = (BlockBasic) b;
 				for (Instruction i : bb.getInstructions()) {
-					if (i instanceof InstLoad) {
-						if (!((InstLoad)i).getSource().getVariable().isGlobal()){
-							tokens.add((InstLoad) i);
+					if (i instanceof InstLoad || i instanceof InstCall) {
+						Token t;
+						if (i instanceof InstLoad) {
+							t = new LoadTokenImpl((InstLoad) i);
+						} else {
+							t = new CallTokenImpl((InstCall) i);
+						}
+						if (!t.usesGlobal()){
+							tokens.add(t);
 						}
 					}
 				}
@@ -349,7 +357,7 @@ public class KPNValidator {
 		GuardConstraint leftConst = left.getConstraints().difference(right.getConstraints());
 		GuardConstraint rightConst = right.getConstraints().difference(left.getConstraints());
 		Set<SeqTreeNode> nodes = new HashSet<SeqTreeNode>();
-		Set<InstLoad> processed = left.getProcessed();
+		Set<Token> processed = left.getProcessed();
 
 		Set<Action> actions = new HashSet<Action>(left.getActions());
 		actions.addAll(right.getActions());

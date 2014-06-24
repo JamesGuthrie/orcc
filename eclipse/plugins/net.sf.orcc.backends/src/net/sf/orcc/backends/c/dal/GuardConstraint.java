@@ -17,6 +17,7 @@ import net.sf.orcc.ir.ExprUnary;
 import net.sf.orcc.ir.ExprVar;
 import net.sf.orcc.ir.Expression;
 import net.sf.orcc.ir.InstAssign;
+import net.sf.orcc.ir.InstCall;
 import net.sf.orcc.ir.InstLoad;
 import net.sf.orcc.ir.InstReturn;
 import net.sf.orcc.ir.Instruction;
@@ -38,7 +39,7 @@ import net.sf.orcc.ir.util.IrUtil;
 public class GuardConstraint {
 	protected List<Instruction> instructions;
 
-	protected Set<InstLoad> loads;
+	protected Set<Token> tokens;
 	protected InstAssign compute;
 	protected InstReturn store;
 	protected String name;
@@ -63,18 +64,23 @@ public class GuardConstraint {
 	 * @param intersection
 	 * @return
 	 */
-	public GuardConstraint(Action a, Set<InstLoad> tokens) {
+	public GuardConstraint(Action a, Set<Token> tokens) {
 		List<Instruction> constInst = new ArrayList<Instruction>();
 		Set<Var> vars = new HashSet<Var>();
 		List<Block> blocks = (List<Block>) IrUtil.copy(a.getScheduler().getBlocks());
 		for (Block b : blocks) {
 			if (b.isBlockBasic()) {
 				for (Instruction i : ((BlockBasic) b).getInstructions()) {
-					if (i instanceof InstLoad) {
-						for (InstLoad t : tokens) {
-							InstLoadComparator comparator = new InstLoadComparator();
-							if (comparator.compare((InstLoad) i, t) == 0) {
-								vars.add(((InstLoad) i).getTarget().getVariable());
+					if (i instanceof InstLoad || i instanceof InstCall) {
+						Token local_t;
+						if (i instanceof InstLoad) {
+							local_t = new LoadTokenImpl((InstLoad) i);
+						} else {
+							local_t = new CallTokenImpl((InstCall) i);
+						}
+						for (Token t : tokens) {
+							if (local_t.compareTo(t) == 0) {
+								vars.add(local_t.getTargetVar());
 								constInst.add(i);
 							}
 						}
@@ -175,11 +181,13 @@ public class GuardConstraint {
 	}
 
 	private void setInstructions(List<Instruction> instructions) {
-		this.loads = new TreeSet<InstLoad>(new InstLoadComparator());
+		this.tokens = new TreeSet<Token>();
 		int count = 0;
 		for (Instruction i : instructions) {
 			if (i instanceof InstLoad) {
-				loads.add((InstLoad) i);
+				tokens.add(new LoadTokenImpl((InstLoad) i));
+			} else if (i instanceof InstCall) {
+				tokens.add(new CallTokenImpl((InstCall) i));
 			} else if (i instanceof InstReturn) {
 				this.store = (InstReturn) i;
 			} else if (i instanceof InstAssign) {
@@ -200,10 +208,10 @@ public class GuardConstraint {
 	 * @return
 	 */
 	public GuardConstraint intersect(GuardConstraint other) {
-		Set<InstLoad> allLoads = new TreeSet<InstLoad>(new InstLoadComparator());
+		Set<Token> allTokens = new TreeSet<Token>();
 
-		allLoads.addAll(this.loads);
-		allLoads.addAll(other.loads);
+		allTokens.addAll(this.tokens);
+		allTokens.addAll(other.tokens);
 		IrFactory irFactory = new IrFactoryImpl();
 		Expression thisVal = IrUtil.copy(this.compute.getValue());
 		Expression otherVal = IrUtil.copy(other.compute.getValue());
@@ -212,7 +220,10 @@ public class GuardConstraint {
 
 		InstAssign newAssign = irFactory.createInstAssign(this.compute.getTarget().getVariable(), newVal);
 
-		List<Instruction> instructions = new ArrayList<Instruction>(allLoads);
+		List<Instruction> instructions = new ArrayList<Instruction>();
+		for (Token t : allTokens) {
+			instructions.add(t.getInstruction());
+		}
 		instructions.add(newAssign);
 		instructions.add(IrUtil.copy(this.store));
 		return new GuardConstraint(instructions, this.name + "_with_" + other.name);
@@ -226,10 +237,10 @@ public class GuardConstraint {
 	 * @return
 	 */
 	public GuardConstraint difference(GuardConstraint other) {
-		Set<InstLoad> allLoads = new TreeSet<InstLoad>(new InstLoadComparator());
+		Set<Token> allTokens = new TreeSet<Token>();
 
-		allLoads.addAll(this.loads);
-		allLoads.addAll(other.loads);
+		allTokens.addAll(this.tokens);
+		allTokens.addAll(other.tokens);
 
 		IrFactory irFactory = new IrFactoryImpl();
 		Expression thisVal = IrUtil.copy(this.compute.getValue());
@@ -239,7 +250,10 @@ public class GuardConstraint {
 
 		InstAssign newAssign = irFactory.createInstAssign(this.compute.getTarget().getVariable(), newVal);
 
-		List<Instruction> instructions = new ArrayList<Instruction>(allLoads);
+		List<Instruction> instructions = new ArrayList<Instruction>();
+		for (Token t : allTokens) {
+			instructions.add(t.getInstruction());
+		}
 		instructions.add(newAssign);
 		instructions.add(IrUtil.copy(this.store));
 		return new GuardConstraint(instructions, this.name + "_without_" + other.name);
@@ -260,9 +274,9 @@ public class GuardConstraint {
 	 */
 	public void setConstraint(Action action) {
 		List<Instruction> instructions = new ArrayList<Instruction>();
-		for (InstLoad i : this.loads) {
-			if (i.getSource().getVariable().isGlobal()) {
-				instructions.add(i);
+		for (Token t : this.tokens) {
+			if (t.usesGlobal()) {
+				instructions.add(t.getInstruction());
 			}
 		}
 		// Keep everything except for the new InstAssign
@@ -296,21 +310,32 @@ public class GuardConstraint {
 	 * @return
 	 */
 	public boolean equivalent(Action action) {
-		Set<InstLoad> loads = new TreeSet<InstLoad>(new InstLoadComparator());
+		Set<Token> tokens = new TreeSet<Token>();
 		for (Block b : action.getScheduler().getBlocks()) {
 			if (b instanceof BlockBasic) {
 				for (Instruction i : ((BlockBasic) b).getInstructions()) {
-					if (i instanceof InstLoad) {
-						loads.add((InstLoad) i);
+					if (i instanceof InstLoad || i instanceof InstCall) {
+						Token t;
+						if (i instanceof InstLoad) {
+							t = new LoadTokenImpl((InstLoad) i);
+						} else {
+							t = new CallTokenImpl((InstCall) i);
+						}
+						tokens.add(t);
 					}
 				}
 			}
 		}
-		loads.removeAll(this.loads);
-		if (loads.size() == 0) {
+		tokens.removeAll(this.tokens);
+		if (tokens.size() == 0) {
 			return true;
 		} else {
 			return false;
 		}
+	}
+
+	@Override
+	public String toString() {
+		return instructions.toString();
 	}
 }

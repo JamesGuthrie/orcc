@@ -24,7 +24,6 @@ import net.sf.orcc.ir.BlockIf
 import net.sf.orcc.ir.BlockWhile
 import net.sf.orcc.ir.InstAssign
 import net.sf.orcc.ir.InstCall
-import net.sf.orcc.ir.InstLoad
 import net.sf.orcc.ir.InstReturn
 import net.sf.orcc.ir.InstStore
 import net.sf.orcc.ir.Procedure
@@ -36,6 +35,7 @@ import net.sf.orcc.util.OrccLogger
 import net.sf.orcc.util.OrccUtil
 
 import static net.sf.orcc.OrccLaunchConstants.*
+import net.sf.orcc.ir.InstLoad
 
 /**
  * Generate and print actor source file for DAL backend.
