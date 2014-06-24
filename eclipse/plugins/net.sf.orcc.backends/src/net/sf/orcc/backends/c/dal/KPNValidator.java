@@ -132,7 +132,7 @@ public class KPNValidator {
 	 * @return
 	 */
 	private Set<InstLoad> intersect(Set<InstLoad> i, Set<InstLoad> o, Comparator<InstLoad> comparator) {
-		Set<InstLoad> intersection = new HashSet<InstLoad>();
+		Set<InstLoad> intersection = new TreeSet<InstLoad>(comparator);
 		for (InstLoad inst1 : i) {
 			for (InstLoad inst2 : o) {
 				if (comparator.compare(inst1, inst2) == 0) {
@@ -190,9 +190,10 @@ public class KPNValidator {
 			}
 		}
 		if (!intersection.isEmpty()){
-			Set<InstLoad> processed = new TreeSet<InstLoad>(new InstLoadComparator());
-			processed.addAll(current.getProcessed());
-			processed.addAll(intersection);
+			Set<InstLoad> processed = new HashSet<InstLoad>();
+			Comparator<InstLoad> comparator = new InstLoadComparator();
+			addAll(processed, current.getProcessed(), comparator);
+			addAll(processed, intersection, comparator);
 			for (Action a: actions) {
 				SeqTreeNode node = new SeqTreeNode(new GuardConstraint(a,intersection), a, processed);
 				insertChildNode(current, node);
@@ -233,10 +234,27 @@ public class KPNValidator {
 			Set<InstLoad> inputTokens = getInputTokens(a);
 			allTokens.add(inputTokens);
 		}
-		Set<InstLoad> nextRead = new TreeSet<InstLoad>(new InstLoadComparator());
-		nextRead.addAll(getIntersection(allTokens));
-		nextRead.addAll(localTokens);
+		Comparator<InstLoad> comparator = new InstLoadComparator();
+		Set<InstLoad> nextRead = new TreeSet<InstLoad>(comparator);
+		addAll(nextRead, getIntersection(allTokens), comparator);
+		addAll(nextRead, localTokens, comparator);
 		return nextRead;
+	}
+
+	private void addAll(Set<InstLoad> to, Set<InstLoad> from, Comparator<InstLoad> comparator) {
+		for (InstLoad i : from) {
+			Iterator<InstLoad> iter = to.iterator();
+			boolean contains = false;
+			while (iter.hasNext()) {
+				InstLoad next = iter.next();
+				if (comparator.compare(next, i) == 0) {
+					contains = true;
+				}
+			}
+			if (!contains) {
+				to.add(i);
+			}
+		}
 	}
 
 	/**
