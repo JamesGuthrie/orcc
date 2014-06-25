@@ -179,19 +179,11 @@ public class KPNValidator {
 		//OrccLogger.noticeln("\tAdding children to node: " + current.getActions().toString() + " processed " + current.getProcessed().toString());
 		Set<Action> actions = current.getActions();
 		Set<Token> intersection = getNextReadTokens(actions);
-		for (Token t : current.getProcessed()) {
-			Iterator<Token> interIter = intersection.iterator();
-			while (interIter.hasNext()) {
-				Token o = interIter.next();
-				if (t.compareTo(o) == 0) {
-					interIter.remove();
-				}
-			}
-		}
+		intersection.removeAll(current.getProcessed());
 		if (!intersection.isEmpty()){
 			Set<Token> processed = new HashSet<Token>();
-			addAll(processed, current.getProcessed());
-			addAll(processed, intersection);
+			processed.addAll(current.getProcessed());
+			processed.addAll(intersection);
 			for (Action a: actions) {
 				SeqTreeNode node = new SeqTreeNode(new GuardConstraint(a, intersection), a, processed);
 				insertChildNode(current, node);
@@ -233,25 +225,9 @@ public class KPNValidator {
 			allTokens.add(inputTokens);
 		}
 		Set<Token> nextRead = new TreeSet<Token>();
-		addAll(nextRead, getIntersection(allTokens));
-		addAll(nextRead, theseTokens);
+		nextRead.addAll(getIntersection(allTokens));
+		nextRead.addAll(theseTokens);
 		return nextRead;
-	}
-
-	private void addAll(Set<Token> to, Set<Token> from) {
-		for (Token i : from) {
-			Iterator<Token> iter = to.iterator();
-			boolean contains = false;
-			while (iter.hasNext()) {
-				Token next = iter.next();
-				if (next.compareTo(i) == 0) {
-					contains = true;
-				}
-			}
-			if (!contains) {
-				to.add(i);
-			}
-		}
 	}
 
 	/**
