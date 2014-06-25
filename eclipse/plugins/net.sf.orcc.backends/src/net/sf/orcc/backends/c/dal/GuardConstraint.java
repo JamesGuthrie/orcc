@@ -39,7 +39,8 @@ import net.sf.orcc.ir.util.IrUtil;
 public class GuardConstraint {
 	protected List<Instruction> instructions;
 
-	protected Set<Token> tokens;
+	protected List<Token> stateTokens;
+	protected Set<Token> inputTokens;
 	protected InstAssign compute;
 	protected InstReturn store;
 	protected String name;
@@ -57,8 +58,8 @@ public class GuardConstraint {
 	}
 
 	/**
-	 * Given an Action a and set of InstLoad tokens, return the constraints
-	 * of a which are dependent on the InstLoads in tokens
+	 * Given an Action a and set of tokens, return the constraints
+	 * of a which are dependent on the given tokens
 	 *
 	 * @param a
 	 * @param intersection
@@ -67,7 +68,7 @@ public class GuardConstraint {
 	public GuardConstraint(Action a, Set<Token> tokens) {
 		List<Instruction> constInst = new ArrayList<Instruction>();
 		Set<Var> vars = new HashSet<Var>();
-		List<Block> blocks = (List<Block>) IrUtil.copy(a.getScheduler().getBlocks());
+		Collection<Block> blocks = IrUtil.copy(a.getScheduler().getBlocks());
 		for (Block b : blocks) {
 			if (b.isBlockBasic()) {
 				for (Instruction i : ((BlockBasic) b).getInstructions()) {
@@ -103,7 +104,7 @@ public class GuardConstraint {
 	}
 
 	/**
-	 * Removes occurrences of Var in an Expression tree, returning
+	 * Retains occurrences of Var in an Expression tree, returning
 	 * the resulting expression.
 	 *
 	 * @author James Guthrie
@@ -117,9 +118,9 @@ public class GuardConstraint {
 
 		/**
 		 * Creates an instance of the remover with the <code>Var</code> instances
-		 * to remove stored in vars.
+		 * to keep stored in vars.
 		 *
-		 * @param vars The vars to remove from the expression tree
+		 * @param vars The vars to retain in the expression tree
 		 */
 		VarRemover(Collection<? extends Var> vars) {
 			super(true);
@@ -135,10 +136,10 @@ public class GuardConstraint {
 
 		@Override
 		public Expression caseExprVar(ExprVar exprVar) {
-			if (!vars.contains(exprVar.getUse().getVariable())){
-				return empty;
-			} else {
+			if (vars.contains(exprVar.getUse().getVariable())){
 				return exprVar;
+			} else {
+				return empty;
 			}
 		}
 
@@ -181,13 +182,22 @@ public class GuardConstraint {
 	}
 
 	private void setInstructions(List<Instruction> instructions) {
-		this.tokens = new TreeSet<Token>();
+		this.stateTokens = new ArrayList<Token>();
+		this.inputTokens = new TreeSet<Token>();
 		int count = 0;
+		Token t;
 		for (Instruction i : instructions) {
-			if (i instanceof InstLoad) {
-				tokens.add(new LoadTokenImpl((InstLoad) i));
-			} else if (i instanceof InstCall) {
-				tokens.add(new CallTokenImpl((InstCall) i));
+			if (i instanceof InstLoad || i instanceof InstCall) {
+				if (i instanceof InstLoad) {
+					t = new LoadTokenImpl((InstLoad) i);
+				} else {
+					t = new CallTokenImpl((InstCall) i);
+				}
+				if (t.isStateToken()) {
+					this.stateTokens.add(t);
+				} else {
+					this.inputTokens.add(t);
+				}
 			} else if (i instanceof InstReturn) {
 				this.store = (InstReturn) i;
 			} else if (i instanceof InstAssign) {
@@ -208,10 +218,13 @@ public class GuardConstraint {
 	 * @return
 	 */
 	public GuardConstraint intersect(GuardConstraint other) {
-		Set<Token> allTokens = new TreeSet<Token>();
+		List<Token> allTokens = new ArrayList<Token>();
 
-		allTokens.addAll(this.tokens);
-		allTokens.addAll(other.tokens);
+		allTokens.addAll(this.stateTokens);
+		allTokens.addAll(this.inputTokens);
+		allTokens.addAll(other.stateTokens);
+		allTokens.addAll(other.inputTokens);
+
 		IrFactory irFactory = new IrFactoryImpl();
 		Expression thisVal = IrUtil.copy(this.compute.getValue());
 		Expression otherVal = IrUtil.copy(other.compute.getValue());
@@ -237,10 +250,12 @@ public class GuardConstraint {
 	 * @return
 	 */
 	public GuardConstraint difference(GuardConstraint other) {
-		Set<Token> allTokens = new TreeSet<Token>();
+		List<Token> allTokens = new ArrayList<Token>();
 
-		allTokens.addAll(this.tokens);
-		allTokens.addAll(other.tokens);
+		allTokens.addAll(this.stateTokens);
+		allTokens.addAll(this.inputTokens);
+		allTokens.addAll(other.stateTokens);
+		allTokens.addAll(other.inputTokens);
 
 		IrFactory irFactory = new IrFactoryImpl();
 		Expression thisVal = IrUtil.copy(this.compute.getValue());
@@ -274,15 +289,14 @@ public class GuardConstraint {
 	 */
 	public void setConstraint(Action action) {
 		List<Instruction> instructions = new ArrayList<Instruction>();
-		for (Token t : this.tokens) {
-			if (t.isStateToken()) {
+		// Throw in the necessary global tokens
+		for (Token t : this.stateTokens) {
 				instructions.add(t.getInstruction());
-			}
 		}
 		// Keep everything except for the new InstAssign
 		for (Block b : action.getScheduler().getBlocks()) {
 			if (b instanceof BlockBasic) {
-				for (Instruction i : ((BlockBasic)b).getInstructions()) {
+				for (Instruction i : ((BlockBasic) b).getInstructions()) {
 					if (i instanceof InstAssign) {
 						instructions.add(compute);
 					} else {
@@ -326,7 +340,8 @@ public class GuardConstraint {
 				}
 			}
 		}
-		tokens.removeAll(this.tokens);
+		tokens.removeAll(this.stateTokens);
+		tokens.removeAll(this.inputTokens);
 		if (tokens.size() == 0) {
 			return true;
 		} else {
