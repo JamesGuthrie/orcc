@@ -275,7 +275,7 @@ public class GuardConstraint {
 	public void setConstraint(Action action) {
 		List<Instruction> instructions = new ArrayList<Instruction>();
 		for (Token t : this.tokens) {
-			if (t.usesGlobal()) {
+			if (t.isStateToken()) {
 				instructions.add(t.getInstruction());
 			}
 		}

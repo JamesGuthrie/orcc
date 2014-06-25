@@ -262,7 +262,7 @@ public class KPNValidator {
 	 * @return A Set of load instructions
 	 */
 	private Set<Token> getGlobalTokens(Action action) {
-		Set<Token> localTokens = new HashSet<Token>();
+		Set<Token> tokens = new HashSet<Token>();
 		for (Block b : action.getScheduler().getBlocks()) {
 			if (b instanceof BlockBasic) {
 				for (Instruction i : ((BlockBasic) b).getInstructions()) {
@@ -273,14 +273,14 @@ public class KPNValidator {
 						} else {
 							t = new CallTokenImpl((InstCall) i);
 						}
-						if (t.usesGlobal()) {
-							localTokens.add(t);
+						if (t.isStateToken()) {
+							tokens.add(t);
 						}
 					}
 				}
 			}
 		}
-		return localTokens;
+		return tokens;
 	}
 
 	/**
@@ -303,7 +303,7 @@ public class KPNValidator {
 						} else {
 							t = new CallTokenImpl((InstCall) i);
 						}
-						if (!t.usesGlobal()){
+						if (t.isInputToken()){
 							tokens.add(t);
 						}
 					}

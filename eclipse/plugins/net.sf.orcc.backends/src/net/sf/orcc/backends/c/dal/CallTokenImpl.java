@@ -1,11 +1,5 @@
 package net.sf.orcc.backends.c.dal;
 
-import net.sf.orcc.OrccRuntimeException;
-import net.sf.orcc.ir.Arg;
-import net.sf.orcc.ir.ArgByRef;
-import net.sf.orcc.ir.ArgByVal;
-import net.sf.orcc.ir.ExprVar;
-import net.sf.orcc.ir.Expression;
 import net.sf.orcc.ir.InstCall;
 import net.sf.orcc.ir.InstLoad;
 import net.sf.orcc.ir.Instruction;
@@ -23,30 +17,6 @@ public class CallTokenImpl implements Token{
 
 	public CallTokenImpl(InstCall instCall) {
 		i = instCall;
-	}
-
-	@Override
-	public boolean usesGlobal() {
-		for (Arg a : ((InstCall) i).getArguments()) {
-			if (a instanceof ArgByVal) {
-				Expression e = ((ArgByVal) a).getValue();
-				if (e instanceof ExprVar) {
-					if (((ExprVar) e).getUse().getVariable().isGlobal()) {
-						return true;
-					}
-				} else {
-					throw new OrccRuntimeException("Unexpected Expression: " + e.getClass());
-				}
-			} else if (a instanceof ArgByRef) {
-				if (((ArgByRef) a).getUse().getVariable().isGlobal()) {
-					return true;
-				}
-			} else {
-				throw new OrccRuntimeException("Unexpected Arg subclass: " + a.getClass());
-			}
-			return true;
-		}
-		return false;
 	}
 
 	@Override
@@ -90,5 +60,15 @@ public class CallTokenImpl implements Token{
 	@Override
 	public int hashCode() {
 		return this.getIdentifyingString().hashCode();
+	}
+
+	@Override
+	public boolean isStateToken() {
+		return true;
+	}
+
+	@Override
+	public boolean isInputToken() {
+		return false;
 	}
 }

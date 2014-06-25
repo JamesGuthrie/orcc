@@ -11,10 +11,12 @@ import net.sf.orcc.ir.Var;
  */
 public interface Token extends Comparable<Token>{
 
-	public boolean usesGlobal();
-
 	public Instruction getInstruction();
 
 	public Var getTargetVar();
+
+	public boolean isStateToken();
+
+	public boolean isInputToken();
 
 }

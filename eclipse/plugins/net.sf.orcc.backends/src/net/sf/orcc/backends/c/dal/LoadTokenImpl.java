@@ -20,11 +20,6 @@ public class LoadTokenImpl implements Token, Comparable<Token> {
 	}
 
 	@Override
-	public boolean usesGlobal() {
-		return i.getSource().getVariable().isGlobal();
-	}
-
-	@Override
 	public Instruction getInstruction() {
 		return i;
 	}
@@ -67,5 +62,23 @@ public class LoadTokenImpl implements Token, Comparable<Token> {
 	@Override
 	public int hashCode() {
 		return this.getIdentifyingString().hashCode();
+	}
+
+	@Override
+	public boolean isStateToken() {
+		if (this.i.getSource().getVariable().isGlobal()) {
+			return true;
+		} else {
+			return false;
+		}
+	}
+
+	@Override
+	public boolean isInputToken() {
+		if (this.i.getSource().getVariable().isGlobal()) {
+			return false;
+		} else {
+			return true;
+		}
 	}
 }
