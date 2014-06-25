@@ -1,7 +1,5 @@
 package net.sf.orcc.backends.c.dal;
 
-import java.util.Collection;
-
 import net.sf.orcc.OrccRuntimeException;
 import net.sf.orcc.ir.Arg;
 import net.sf.orcc.ir.ArgByRef;
@@ -67,32 +65,30 @@ public class CallTokenImpl implements Token{
 		if (otherInst instanceof InstLoad) {
 			return 1;
 		} else {
-			String thisString = i.getProcedure().getName() + "_" + argsToString(i.getArguments());
-			InstCall otherCall = (InstCall) o.getInstruction();
-			String otherString = otherCall.getProcedure().getName() + "_" + argsToString(otherCall.getArguments());
-			return thisString.compareTo(otherString);
+			return this.getIdentifyingString().compareTo(((CallTokenImpl) o).getIdentifyingString());
 		}
 	}
 
-	private String argsToString(Collection<Arg> args) {
-		String argString = "";
-		for (Arg a : args) {
-			if (a.isByRef()) {
-				argString += ((ArgByRef) a).getUse().getVariable().getName();
-			} else {
-				Expression e = ((ArgByVal) a).getValue();
-				if (e instanceof ExprVar) {
-					argString += ((ExprVar) e).getUse().getVariable().getName();
-				} else {
-					throw new OrccRuntimeException("Unexpected expression: " +e.getClass());
-				}
-			}
-		}
-		return argString;
+	private String getIdentifyingString() {
+		return i.getProcedure().getName() + "_" + new Stringifier().doSwitch(i.getArguments());
 	}
 
 	@Override
 	public String toString() {
 		return i.toString();
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (!(obj instanceof CallTokenImpl)) {
+			return false;
+		} else {
+			return (this.compareTo((CallTokenImpl) obj) == 0);
+		}
+	}
+
+	@Override
+	public int hashCode() {
+		return this.getIdentifyingString().hashCode();
 	}
 }

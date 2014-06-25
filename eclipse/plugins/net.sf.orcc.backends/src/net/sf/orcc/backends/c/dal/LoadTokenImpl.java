@@ -1,9 +1,5 @@
 package net.sf.orcc.backends.c.dal;
 
-import java.util.List;
-
-import net.sf.orcc.ir.ExprInt;
-import net.sf.orcc.ir.Expression;
 import net.sf.orcc.ir.InstCall;
 import net.sf.orcc.ir.InstLoad;
 import net.sf.orcc.ir.Instruction;
@@ -44,35 +40,32 @@ public class LoadTokenImpl implements Token, Comparable<Token> {
 		if (otherInst instanceof InstCall) {
 			return -1;
 		} else {
-			InstLoad otherLoad = (InstLoad) otherInst;
-		    List<Expression> uIndexes = this.i.getIndexes();
-		    List<Expression> vIndexes = otherLoad.getIndexes();
-		    boolean flag = true;
-			for (Expression e : uIndexes) {
-				boolean iflag = false;
-				for (Expression f : vIndexes) {
-					if (e instanceof ExprInt && f instanceof ExprInt) {
-						if (((ExprInt) e).getIntValue() == ((ExprInt) f).getIntValue()) {
-							iflag = true;
-						}
-					}
-				}
-				if (iflag == false) {
-					flag = false;
-				}
-			}
-			String uName = this.i.getSource().getVariable().getName();
-			String vName = otherLoad.getSource().getVariable().getName();
-			if (uName.equals(vName) && flag == true) {
-				return 0;
-			} else {
-			    return uName.concat(uIndexes.toString()).compareTo(vName.concat(vIndexes.toString()));
-			}
+			return this.getIdentifyingString().compareTo(((LoadTokenImpl) o).getIdentifyingString());
 		}
+	}
+
+	protected String getIdentifyingString() {
+		String thisName = this.i.getSource().getVariable().getName();
+		String thisIndexes = new Stringifier().doSwitch(this.i.getIndexes());
+		return thisName + thisIndexes;
 	}
 
 	@Override
 	public String toString() {
 		return i.toString();
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (!(obj instanceof LoadTokenImpl)) {
+			return false;
+		} else {
+			return (this.compareTo((LoadTokenImpl) obj) == 0);
+		}
+	}
+
+	@Override
+	public int hashCode() {
+		return this.getIdentifyingString().hashCode();
 	}
 }
