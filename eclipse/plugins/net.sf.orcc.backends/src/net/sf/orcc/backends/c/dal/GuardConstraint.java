@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.SortedSet;
 import java.util.TreeSet;
 
 import net.sf.orcc.OrccRuntimeException;
@@ -39,8 +40,7 @@ import net.sf.orcc.ir.util.IrUtil;
 public class GuardConstraint {
 	protected List<Instruction> instructions;
 
-	protected List<Token> stateTokens;
-	protected Set<Token> inputTokens;
+	protected SortedSet<Token> tokens;
 	protected InstAssign compute;
 	protected InstReturn store;
 	protected String name;
@@ -71,22 +71,31 @@ public class GuardConstraint {
 		Collection<Block> blocks = IrUtil.copy(a.getScheduler().getBlocks());
 		for (Block b : blocks) {
 			if (b.isBlockBasic()) {
-				for (Instruction i : ((BlockBasic) b).getInstructions()) {
-					if (i instanceof InstLoad || i instanceof InstCall) {
-						Token local_t;
-						if (i instanceof InstLoad) {
-							local_t = new LoadTokenImpl((InstLoad) i);
-						} else {
-							local_t = new CallTokenImpl((InstCall) i);
-						}
-						for (Token t : tokens) {
-							if (local_t.compareTo(t) == 0) {
-								vars.add(local_t.getTargetVar());
-								constInst.add(i);
+				// Build a list of tokens which are valid given the set of input tokens
+				// This covers token dependencies such as load(local_test_local_inA_1, test[local_inA_1])
+				int varsAdded;
+				Set<Token> processed = new TreeSet<Token>();
+				do {
+					varsAdded = 0;
+					for (Instruction i : ((BlockBasic) b).getInstructions()) {
+						if (i instanceof InstLoad || i instanceof InstCall) {
+							Token local_t;
+							if (i instanceof InstLoad) {
+								local_t = new LoadTokenImpl((InstLoad) i);
+							} else {
+								local_t = new CallTokenImpl((InstCall) i);
+							}
+							if (!processed.contains(local_t)){
+								if (tokens.contains(local_t) && local_t.depsFulfilledBy(vars)) {
+									processed.add(local_t);
+									varsAdded++;
+									vars.add(local_t.getTargetVar());
+									constInst.add(i);
+								}
 							}
 						}
 					}
-				}
+				} while(varsAdded > 0);
 				for (Instruction i : ((BlockBasic) b).getInstructions()) {
 					if (i instanceof InstAssign) {
 						Expression removedVars = new VarRemover(vars).doSwitch(((InstAssign) i).getValue());
@@ -182,8 +191,7 @@ public class GuardConstraint {
 	}
 
 	private void setInstructions(List<Instruction> instructions) {
-		this.stateTokens = new ArrayList<Token>();
-		this.inputTokens = new TreeSet<Token>();
+		this.tokens = new TreeSet<Token>();
 		int count = 0;
 		Token t;
 		for (Instruction i : instructions) {
@@ -193,11 +201,7 @@ public class GuardConstraint {
 				} else {
 					t = new CallTokenImpl((InstCall) i);
 				}
-				if (t.isStateToken()) {
-					this.stateTokens.add(t);
-				} else {
-					this.inputTokens.add(t);
-				}
+				this.tokens.add(t);
 			} else if (i instanceof InstReturn) {
 				this.store = (InstReturn) i;
 			} else if (i instanceof InstAssign) {
@@ -218,12 +222,10 @@ public class GuardConstraint {
 	 * @return
 	 */
 	public GuardConstraint intersect(GuardConstraint other) {
-		List<Token> allTokens = new ArrayList<Token>();
+		SortedSet<Token> allTokens = new TreeSet<Token>();
 
-		allTokens.addAll(this.stateTokens);
-		allTokens.addAll(this.inputTokens);
-		allTokens.addAll(other.stateTokens);
-		allTokens.addAll(other.inputTokens);
+		allTokens.addAll(this.tokens);
+		allTokens.addAll(other.tokens);
 
 		IrFactory irFactory = new IrFactoryImpl();
 		Expression thisVal = IrUtil.copy(this.compute.getValue());
@@ -250,12 +252,10 @@ public class GuardConstraint {
 	 * @return
 	 */
 	public GuardConstraint difference(GuardConstraint other) {
-		List<Token> allTokens = new ArrayList<Token>();
+		SortedSet<Token> allTokens = new TreeSet<Token>();
 
-		allTokens.addAll(this.stateTokens);
-		allTokens.addAll(this.inputTokens);
-		allTokens.addAll(other.stateTokens);
-		allTokens.addAll(other.inputTokens);
+		allTokens.addAll(this.tokens);
+		allTokens.addAll(other.tokens);
 
 		IrFactory irFactory = new IrFactoryImpl();
 		Expression thisVal = IrUtil.copy(this.compute.getValue());
@@ -289,9 +289,30 @@ public class GuardConstraint {
 	 */
 	public void setConstraint(Action action) {
 		List<Instruction> instructions = new ArrayList<Instruction>();
-		// Throw in the necessary global tokens
-		for (Token t : this.stateTokens) {
-				instructions.add(t.getInstruction());
+		SortedSet<Token> tokens = new TreeSet<Token>();
+		// Gather all tokens
+		for (Token t : this.tokens) {
+			if (t.isStateToken()) {
+				tokens.add(t);
+			}
+		}
+		for (Block b : action.getScheduler().getBlocks()) {
+			if (b instanceof BlockBasic) {
+				for (Instruction i : ((BlockBasic) b).getInstructions()) {
+					if (i instanceof InstLoad || i instanceof InstCall) {
+						Token t;
+						if (i instanceof InstLoad) {
+							t = new LoadTokenImpl((InstLoad) i);
+						} else {
+							t = new CallTokenImpl((InstCall) i);
+						}
+						tokens.add(t);
+					}
+				}
+			}
+		}
+		for (Token t : tokens) {
+			instructions.add(t.getInstruction());
 		}
 		// Keep everything except for the new InstAssign
 		for (Block b : action.getScheduler().getBlocks()) {
@@ -299,7 +320,7 @@ public class GuardConstraint {
 				for (Instruction i : ((BlockBasic) b).getInstructions()) {
 					if (i instanceof InstAssign) {
 						instructions.add(compute);
-					} else {
+					} else if (!(i instanceof InstLoad) && !(i instanceof InstCall)) {
 						instructions.add(i);
 					}
 				}
@@ -340,8 +361,7 @@ public class GuardConstraint {
 				}
 			}
 		}
-		tokens.removeAll(this.stateTokens);
-		tokens.removeAll(this.inputTokens);
+		tokens.removeAll(this.tokens);
 		if (tokens.size() == 0) {
 			return true;
 		} else {

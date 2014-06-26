@@ -1,8 +1,8 @@
 package net.sf.orcc.backends.c.dal;
 
+import java.util.Collection;
+
 import net.sf.orcc.ir.InstCall;
-import net.sf.orcc.ir.InstLoad;
-import net.sf.orcc.ir.Instruction;
 import net.sf.orcc.ir.Var;
 
 /**
@@ -11,17 +11,15 @@ import net.sf.orcc.ir.Var;
  * @author James Guthrie
  *
  */
-public class CallTokenImpl implements Token{
-
-	private InstCall i;
+public class CallTokenImpl extends TokenImpl implements Token {
 
 	public CallTokenImpl(InstCall instCall) {
 		i = instCall;
 	}
 
 	@Override
-	public Instruction getInstruction() {
-		return i;
+	public InstCall getInstruction() {
+		return (InstCall) i;
 	}
 
 	@Override
@@ -29,18 +27,9 @@ public class CallTokenImpl implements Token{
 		return ((InstCall) i).getTarget().getVariable();
 	}
 
-	@Override
-	public int compareTo(Token o) {
-		Instruction otherInst = o.getInstruction();
-		if (otherInst instanceof InstLoad) {
-			return 1;
-		} else {
-			return this.getIdentifyingString().compareTo(((CallTokenImpl) o).getIdentifyingString());
-		}
-	}
-
+	// TODO: replace functionality of this with toString()?
 	private String getIdentifyingString() {
-		return i.getProcedure().getName() + "_" + new Stringifier().doSwitch(i.getArguments());
+		return getInstruction().getProcedure().getName() + "_" + new Stringifier().doSwitch(getInstruction().getArguments());
 	}
 
 	@Override
@@ -71,4 +60,16 @@ public class CallTokenImpl implements Token{
 	public boolean isInputToken() {
 		return false;
 	}
+
+	@Override
+	public boolean in(Collection<Var> vars) {
+		String thisName = getInstruction().getTarget().getVariable().getName();
+		for (Var v : vars) {
+			if (v.getName().equals(thisName)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 }
