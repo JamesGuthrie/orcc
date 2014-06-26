@@ -1,7 +1,6 @@
 package net.sf.orcc.backends.c.dal;
 
 import java.util.Collection;
-import java.util.Set;
 
 import net.sf.orcc.ir.Instruction;
 import net.sf.orcc.ir.Var;

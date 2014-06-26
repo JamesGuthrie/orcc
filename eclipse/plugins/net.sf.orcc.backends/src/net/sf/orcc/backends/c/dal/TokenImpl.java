@@ -91,19 +91,26 @@ public abstract class TokenImpl implements Token, Comparable<Token> {
 	}
 
 	@Override
-	public boolean depsFulfilledBy(Collection<Var> vars) {
+	public boolean depsFulfilledBy(Collection<Var> fulfillingVars) {
 		Collection<Var> deps = dependencies();
 		Iterator<Var> iter = deps.iterator();
 		while (iter.hasNext()) {
 			Var dep = iter.next();
-			for (Var v : vars) {
-				if (dep.getName().equals(v.getName())) {
-					iter.remove();
-					break;
+			if (dep.isGlobal()) {
+				// If the dep has global scope it's not a true dep
+				iter.remove();
+			} else {
+				// If it has local scope, and is contained in fulfullingVars, remove
+				for (Var v : fulfillingVars) {
+					if (dep.getName().equals(v.getName())) {
+						iter.remove();
+						break;
+					}
 				}
 			}
 		}
-		if (deps.size() == 0) {
+		// If all dependencies are fulfilled, deps is empty
+		if (deps.isEmpty()) {
 			return true;
 		} else {
 			return false;
