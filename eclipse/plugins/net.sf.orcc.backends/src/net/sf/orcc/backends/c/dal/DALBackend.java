@@ -1,6 +1,7 @@
 package net.sf.orcc.backends.c.dal;
 
 import net.sf.orcc.backends.c.CBackend;
+import net.sf.orcc.backends.c.dal.transform.LoadAdder;
 import net.sf.orcc.backends.c.dal.transform.LoadRewriter;
 import net.sf.orcc.backends.util.Validator;
 import net.sf.orcc.df.Actor;
@@ -71,6 +72,8 @@ public class DALBackend extends CBackend {
 
 		new ArgumentEvaluator().doSwitch(network);
 
+		OrccLogger.traceln("Adding load instructions...");
+		new LoadAdder().doSwitch(network);
 		OrccLogger.traceln("Rewriting load instructions...");
 		new LoadRewriter().doSwitch(network);
 		
