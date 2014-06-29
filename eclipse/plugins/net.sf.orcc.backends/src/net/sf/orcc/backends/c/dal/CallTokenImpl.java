@@ -27,28 +27,9 @@ public class CallTokenImpl extends TokenImpl implements Token {
 		return ((InstCall) i).getTarget().getVariable();
 	}
 
-	// TODO: replace functionality of this with toString()?
-	private String getIdentifyingString() {
-		return getInstruction().getProcedure().getName() + "_" + new Stringifier().doSwitch(getInstruction().getArguments());
-	}
-
 	@Override
 	public String toString() {
-		return i.toString();
-	}
-
-	@Override
-	public boolean equals(Object obj) {
-		if (!(obj instanceof CallTokenImpl)) {
-			return false;
-		} else {
-			return (this.compareTo((CallTokenImpl) obj) == 0);
-		}
-	}
-
-	@Override
-	public int hashCode() {
-		return this.getIdentifyingString().hashCode();
+		return "call_" + getInstruction().getProcedure().getName() + "_" + new Stringifier().doSwitch(getInstruction().getArguments());
 	}
 
 	@Override

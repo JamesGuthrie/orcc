@@ -135,4 +135,18 @@ public abstract class TokenImpl implements Token, Comparable<Token> {
 			return diff;
 		}
 	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (!(obj instanceof LoadTokenImpl)) {
+			return false;
+		} else {
+			return (this.compareTo((LoadTokenImpl) obj) == 0);
+		}
+	}
+
+	@Override
+	public int hashCode() {
+		return this.toString().hashCode();
+	}
 }

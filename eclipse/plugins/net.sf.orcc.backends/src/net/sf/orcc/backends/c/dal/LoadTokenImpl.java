@@ -27,30 +27,15 @@ public class LoadTokenImpl extends TokenImpl implements Token {
 		return getInstruction().getTarget().getVariable();
 	}
 
-	// TODO: replace functionality of this with toString()?
-	protected String getIdentifyingString() {
-		String thisName = getInstruction().getSource().getVariable().getName();
-		String thisIndexes = new Stringifier().doSwitch(getInstruction().getIndexes());
-		return thisName + thisIndexes;
-	}
-
 	@Override
 	public String toString() {
-		return i.toString();
-	}
-
-	@Override
-	public boolean equals(Object obj) {
-		if (!(obj instanceof LoadTokenImpl)) {
-			return false;
+		String thisName = "load_" + getInstruction().getSource().getVariable().getName();
+		String thisIndexes = new Stringifier().doSwitch(getInstruction().getIndexes());
+		if (thisIndexes.length() > 0) {
+			return thisName + "_" + thisIndexes;
 		} else {
-			return (this.compareTo((LoadTokenImpl) obj) == 0);
+			return thisName;
 		}
-	}
-
-	@Override
-	public int hashCode() {
-		return this.getIdentifyingString().hashCode();
 	}
 
 	@Override
