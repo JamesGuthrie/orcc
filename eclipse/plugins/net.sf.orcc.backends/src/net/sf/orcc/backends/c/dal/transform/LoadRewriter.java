@@ -17,7 +17,8 @@ import net.sf.orcc.ir.util.AbstractIrVisitor;
 
 /**
  * Rewrites the target of a load instruction to be the same name
- * across all instances of the load.
+ * across all instances of the load. Recursively rewrites uses of the
+ * previous name to the new name.
  *
  * @author James Guthrie
  *
@@ -82,6 +83,11 @@ public class LoadRewriter extends DfVisitor<Void> {
 				irVisitor.doSwitch(action.getBody().getBlocks());
 			}
 		}
+		return null;
+	}
+
+	public Void doSwitch(InstLoad instLoad) {
+		new IrVisitor().doSwitch(instLoad);
 		return null;
 	}
 

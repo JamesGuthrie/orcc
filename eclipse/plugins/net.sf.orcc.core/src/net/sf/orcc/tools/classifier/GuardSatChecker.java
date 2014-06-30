@@ -458,7 +458,7 @@ public class GuardSatChecker {
 
 		@Override
 		public Object caseAction(Action action) {
-			Pattern pattern = action.getInputPattern();
+			Pattern pattern = action.getPeekPattern();
 			for (Port port : pattern.getPorts()) {
 				Var variable = pattern.getVariable(port);
 				irTranslator.declareVar(variable);

@@ -8,16 +8,21 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
+import org.eclipse.emf.common.util.EMap;
+
 import net.sf.orcc.graph.Edge;
 import net.sf.orcc.ir.Block;
 import net.sf.orcc.ir.BlockBasic;
 import net.sf.orcc.ir.InstCall;
 import net.sf.orcc.ir.InstLoad;
 import net.sf.orcc.ir.Instruction;
+import net.sf.orcc.ir.IrFactory;
 import net.sf.orcc.ir.Var;
+import net.sf.orcc.ir.impl.IrFactoryImpl;
 import net.sf.orcc.ir.util.IrUtil;
 import net.sf.orcc.tools.classifier.GuardSatChecker;
 import net.sf.orcc.util.OrccLogger;
+import net.sf.orcc.backends.c.dal.transform.LoadRewriter;
 import net.sf.orcc.df.Actor;
 import net.sf.orcc.df.Action;
 import net.sf.orcc.df.State;
@@ -220,15 +225,15 @@ public class KPNValidator {
 		actions.addAll(right.getActions());
 		SeqTreeNode n;
 		n = new SeqTreeNode(intersect, actions, processed);
-		if (sat(n)) {
+		if (sat(n, actions)) {
 			nodes.add(n);
 		}
 		n = new SeqTreeNode(leftConst, left.getActions(), processed);
-		if (sat(n)) {
+		if (sat(n, actions)) {
 			nodes.add(n);
 		}
 		n = new SeqTreeNode(rightConst, right.getActions(), processed);
-		if (sat(n)) {
+		if (sat(n, actions)) {
 			nodes.add(n);
 		}
 		return nodes;
@@ -268,8 +273,11 @@ public class KPNValidator {
 	 */
 	private boolean sat(SeqTreeNode left, SeqTreeNode right) {
 		// Clone existing actions
-		Action leftAction = IrUtil.copy(left.getActions().iterator().next());
-		Action rightAction = IrUtil.copy(right.getActions().iterator().next());
+		Set<Action> actions = new HashSet<Action>();
+		actions.addAll(left.getActions());
+		actions.addAll(right.getActions());
+		Action leftAction = IrUtil.copy(getPeekiestAction(actions));
+		Action rightAction = IrUtil.copy(getPeekiestAction(actions));
 
 		// Set constraints of cloned actions
 		left.getConstraints().setConstraint(leftAction);
@@ -284,14 +292,26 @@ public class KPNValidator {
 	 * @param node
 	 * @return true if satisfiable, false otherwise
 	 */
-	private boolean sat(SeqTreeNode node) {
+	private boolean sat(SeqTreeNode node, Set<Action> actions) {
 		// Clone existing action
-		Action action = IrUtil.copy(node.getActions().iterator().next());
+		Action action = IrUtil.copy(getPeekiestAction(actions));
 
 		// Set constraints of cloned action
 		node.getConstraints().setConstraint(action);
 
 		return satChecker.checkSat(action);
+	}
+
+	private Action getPeekiestAction(Set<Action> actions) {
+		Iterator<Action> iter = actions.iterator();
+		Action action = iter.next();
+		while (iter.hasNext()) {
+			Action a = iter.next();
+			if (a.getPeekPattern().isSupersetOf(action.getPeekPattern())) {
+				action = a;
+			}
+		}
+		return action;
 	}
 
 	/**
@@ -371,21 +391,19 @@ public class KPNValidator {
 	 * @return A Set of load instructions
 	 */
 	private Set<Token> getInputTokens(Action action) {
-		Set<Token> tokens = new HashSet<Token>();
-		for(Block b : action.getScheduler().getBlocks()) {
+		Set<Token> tokens = new TreeSet<Token>();
+		Pattern pattern = action.getInputPattern();
+		EMap <Port, Var> m = pattern.getPortToVarMap();
+		IrFactory irFactory = new IrFactoryImpl();
+		for (Block b : action.getScheduler().getBlocks()) {
 			if (b.isBlockBasic()) {
-				BlockBasic bb = (BlockBasic) b;
-				for (Instruction i : bb.getInstructions()) {
-					if (i instanceof InstLoad || i instanceof InstCall) {
-						Token t;
-						if (i instanceof InstLoad) {
-							t = new LoadTokenImpl((InstLoad) i);
-						} else {
-							t = new CallTokenImpl((InstCall) i);
-						}
-						if (t.isInputToken()){
-							tokens.add(t);
-						}
+				for (Port port : m.keySet()) {
+					Var v = m.get(port);
+					for (int i = 0; i < pattern.getNumTokens(port); i++) {
+						Var target = irFactory.createVar(port.getType(), "placeholder_name" , false, i);
+						InstLoad load = irFactory.createInstLoad(target, v, i);
+						new LoadRewriter().doSwitch(load);
+						tokens.add(new LoadTokenImpl(load));
 					}
 				}
 			}
