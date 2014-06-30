@@ -32,7 +32,7 @@ import net.sf.orcc.ir.util.AbstractIrVisitor;
 import net.sf.orcc.ir.util.IrUtil;
 
 /**
- * Helper class to encapsulate an actor's guard constraints.
+ * Encapsulates an actor's guard constraints.
  *
  * @author James Guthrie
  *
@@ -59,7 +59,10 @@ public class GuardConstraint {
 
 	/**
 	 * Given an Action a and set of tokens, return the constraints
-	 * of a which are dependent on the given tokens
+	 * of a which are dependent on the given tokens. If tokens is
+	 * <code>null</code> use all constraints.
+	 *
+	 * TODO: Compact this function
 	 *
 	 * @param a
 	 * @param intersection
@@ -86,11 +89,20 @@ public class GuardConstraint {
 								local_t = new CallTokenImpl((InstCall) i);
 							}
 							if (!processed.contains(local_t)){
-								if (tokens.contains(local_t) && local_t.depsFulfilledBy(vars)) {
+								// If null, throw all instructions in
+								if (tokens == null) {
 									processed.add(local_t);
 									varsAdded++;
 									vars.add(local_t.getTargetVar());
 									constInst.add(i);
+								} else {
+									if (tokens.contains(local_t) && local_t.depsFulfilledBy(vars)) {
+										processed.add(local_t);
+										varsAdded++;
+										vars.add(local_t.getTargetVar());
+										constInst.add(i);
+										tokens.remove(local_t);
+									}
 								}
 							}
 						}
@@ -145,11 +157,12 @@ public class GuardConstraint {
 
 		@Override
 		public Expression caseExprVar(ExprVar exprVar) {
-			if (vars.contains(exprVar.getUse().getVariable())){
-				return exprVar;
-			} else {
-				return empty;
+			for (Var v : vars) {
+				if (v.getName().equals(exprVar.getUse().getVariable().getName())) {
+					return exprVar;
+				}
 			}
+			return empty;
 		}
 
 		@Override
@@ -290,10 +303,12 @@ public class GuardConstraint {
 	public void setConstraint(Action action) {
 		List<Instruction> instructions = new ArrayList<Instruction>();
 		SortedSet<Token> tokens = new TreeSet<Token>();
-		// Gather all tokens
+		Collection<Var> deps = new HashSet<Var>();
+		// Gather all state tokens
 		for (Token t : this.tokens) {
 			if (t.isStateToken()) {
 				tokens.add(t);
+				deps.addAll(t.dependencies());
 			}
 		}
 		for (Block b : action.getScheduler().getBlocks()) {
@@ -307,12 +322,16 @@ public class GuardConstraint {
 							t = new CallTokenImpl((InstCall) i);
 						}
 						tokens.add(t);
+						deps.addAll(t.dependencies());
 					}
 				}
 			}
 		}
+		deps.addAll(new GetVars().doSwitch(compute));
 		for (Token t : tokens) {
-			instructions.add(t.getInstruction());
+			if (t.in(deps)) {
+				instructions.add(t.getInstruction());
+			}
 		}
 		// Keep everything except for the new InstAssign
 		for (Block b : action.getScheduler().getBlocks()) {
@@ -345,28 +364,35 @@ public class GuardConstraint {
 	 * @return
 	 */
 	public boolean equivalent(Action action) {
-		Set<Token> tokens = new TreeSet<Token>();
-		for (Block b : action.getScheduler().getBlocks()) {
-			if (b instanceof BlockBasic) {
-				for (Instruction i : ((BlockBasic) b).getInstructions()) {
-					if (i instanceof InstLoad || i instanceof InstCall) {
-						Token t;
-						if (i instanceof InstLoad) {
-							t = new LoadTokenImpl((InstLoad) i);
-						} else {
-							t = new CallTokenImpl((InstCall) i);
-						}
-						tokens.add(t);
-					}
+		/**
+		 * This evaluates whether the constructed constraints are equivalent to the
+		 * action's constraints based on whether the tokens and compute contain the
+		 * same vars. If they don't, they're definitely not equivalent, if they do
+		 * there is still a chance that they're not equivalent but this doesn't
+		 * perform an exhaustive check.
+		 */
+		GetVars varGetter = new GetVars();
+		Collection<Var> thisVars = varGetter.doSwitch(this.compute);
+		for (Token t : this.tokens) {
+			thisVars.addAll(varGetter.doSwitch(t.getInstruction()));
+		}
+		GuardConstraint actionGuards = new GuardConstraint(action, null);
+		Collection<Var> actionVars = varGetter.doSwitch(actionGuards.compute);
+		for (Token t : actionGuards.tokens) {
+			actionVars.addAll(varGetter.doSwitch(t.getInstruction()));
+		}
+		for (Var actionV : actionVars) {
+			boolean flag = false;
+			for (Var thisV : thisVars) {
+				if (thisV.getName().equals(actionV.getName())) {
+					flag = true;
 				}
 			}
+			if (flag == false) {
+				return false;
+			}
 		}
-		tokens.removeAll(this.tokens);
-		if (tokens.size() == 0) {
-			return true;
-		} else {
-			return false;
-		}
+		return true;
 	}
 
 	@Override

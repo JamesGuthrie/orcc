@@ -1,6 +1,7 @@
 package net.sf.orcc.backends.c.dal;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -13,6 +14,7 @@ import net.sf.orcc.ir.BlockBasic;
 import net.sf.orcc.ir.InstCall;
 import net.sf.orcc.ir.InstLoad;
 import net.sf.orcc.ir.Instruction;
+import net.sf.orcc.ir.Var;
 import net.sf.orcc.ir.util.IrUtil;
 import net.sf.orcc.tools.classifier.GuardSatChecker;
 import net.sf.orcc.util.OrccLogger;
@@ -35,9 +37,6 @@ import net.sf.orcc.df.Network;
 public class KPNValidator {
 
 	private GuardSatChecker satChecker;
-
-	public KPNValidator(){
-	}
 
 	public void validate(Network network) {
 		for (Actor actor : network.getAllActors()) {
@@ -98,6 +97,36 @@ public class KPNValidator {
 		}
 	}
 
+	private boolean inspectState(Actor actor, State srcState) {
+		List<Action> actions = new ArrayList<Action>();
+		for (Edge edge : srcState.getOutgoing()) {
+			actions.add(((Transition) edge).getAction());
+		}
+		actions.addAll(actor.getActionsOutsideFsm());
+		SeqTreeNode root = inspectActionList(actor, actions, false);
+		srcState.setAttribute("SequenceTreeRoot", root);
+		if (root == null) {
+			return false;
+		} else {
+			return true;
+		}
+	}
+
+	private SeqTreeNode inspectActionList(Actor actor, List<Action> actions, boolean actorLevel) {
+		SeqTreeNode root = getPeekSequence(actor, actions);
+		if (root == null) {
+			OrccLogger.warnln("No peek sequence for actor: " + actor.getName() + ": " + actions.toString());
+		}
+		return root;
+	}
+
+	/**
+	 * Get the peek sequence of <code>actor</code> for <code>actions</code>
+	 *
+	 * @param actor
+	 * @param actions
+	 * @return The root node of a peek sequence tree
+	 */
 	private SeqTreeNode getPeekSequence(Actor actor, List<Action> actions) {
 		satChecker = new GuardSatChecker(actor);
 		SeqTreeNode root = new SeqTreeNode(actions);
@@ -105,78 +134,12 @@ public class KPNValidator {
 	}
 
 	/**
-	 * Get the set intersection. Given a set of Sets, this function determines
-	 * the intersection of all Sets and returns the elements in the intersection
-	 *
-	 * @param s a set of Sets
-	 * @return a set representing the intersection of the values of the Sets
-	 */
-	private Set<Token> getIntersection(Set<Set<Token>> s){
-		Iterator<Set<Token>> it = s.iterator();
-		if (it.hasNext()) {
-			Set<Token> result = new HashSet<Token>(it.next());
-			while (it.hasNext()) {
-				Set<Token> others = it.next();
-				result = intersect(result, others);
-			}
-			return result;
-		} else {
-			return null;
-		}
-	}
-
-	/**
-	 * Intersect the set i and o
-	 * @param i
-	 * @param o
-	 * @return
-	 */
-	private Set<Token> intersect(Set<Token> i, Set<Token> o) {
-		Set<Token> intersection = new TreeSet<Token>();
-		for (Token inst1 : i) {
-			for (Token inst2 : o) {
-				if (inst1.compareTo(inst2) == 0) {
-					intersection.add(inst1);
-				}
-			}
-		}
-		return intersection;
-	}
-
-	/**
-	 * Determine whether constraints of nodes left and right
-	 * are simultaneously satisfiable
-	 *
-	 * @param left
-	 * @param right
-	 * @return true if satisfiable, false if mutually exclusive
-	 */
-	private boolean sat(SeqTreeNode left, SeqTreeNode right) {
-		//OrccLogger.noticeln("\t\tChecking sat of " + left.getActions().toString() + " and " + right.getActions().toString());
-		// Clone existing actions
-		Action leftAction = IrUtil.copy(left.getActions().iterator().next());
-		Action rightAction = IrUtil.copy(right.getActions().iterator().next());
-		// Set constraints of cloned actions
-		left.getConstraints().setConstraint(leftAction);
-		right.getConstraints().setConstraint(rightAction);
-		return satChecker.checkSat(leftAction, rightAction);
-	}
-
-	private boolean sat(SeqTreeNode node) {
-		//OrccLogger.noticeln("\t\tChecking sat of " + node.getActions().toString());
-		// Clone existing action
-		Action action = IrUtil.copy(node.getActions().iterator().next());
-		// Set constraints of cloned action
-		node.getConstraints().setConstraint(action);
-		return satChecker.checkSat(action);
-	}
-
-	/**
 	 * Recursively construct port peek sequence.
+	 *
 	 * @param current
+	 * @return The root node of a peek sequence tree
 	 */
 	private SeqTreeNode addChildren(SeqTreeNode current) {
-		//OrccLogger.noticeln("\tAdding children to node: " + current.getActions().toString() + " processed " + current.getProcessed().toString());
 		Set<Action> actions = current.getActions();
 		Set<Token> intersection = getNextReadTokens(actions);
 		intersection.removeAll(current.getProcessed());
@@ -185,7 +148,7 @@ public class KPNValidator {
 			processed.addAll(current.getProcessed());
 			processed.addAll(intersection);
 			for (Action a: actions) {
-				SeqTreeNode node = new SeqTreeNode(new GuardConstraint(a, intersection), a, processed);
+				SeqTreeNode node = new SeqTreeNode(new GuardConstraint(a, new TreeSet<Token>(intersection)), a, processed);
 				insertChildNode(current, node);
 			}
 			for (SeqTreeNode child : current.getChildren()) {
@@ -201,93 +164,11 @@ public class KPNValidator {
 						return null;
 					}
 				}
-				//OrccLogger.noticeln("\t\tAction priority can be used to resolve conflict.");
 			}
 		}
 		return current;
 	}
 
-	/**
-	 * Get the load instructions which can be read by all actions in a DAL KPN.
-	 * This is the intersection of the input channel loads of all actions and
-	 * the union of global variable loads of all actions
-	 *
-	 * @param actions
-	 * @return
-	 */
-	private Set<Token> getNextReadTokens(Set<Action> actions) {
-		Set<Token> theseTokens = new HashSet<Token>();
-		Set<Set<Token>> allTokens = new HashSet<Set<Token>>();
-		for (Action a : actions){
-			Set<Token> globalTokens = getGlobalTokens(a);
-			theseTokens.addAll(globalTokens);
-			Set<Token> inputTokens = getInputTokens(a);
-			allTokens.add(inputTokens);
-		}
-		Set<Token> nextRead = new TreeSet<Token>();
-		nextRead.addAll(getIntersection(allTokens));
-		nextRead.addAll(theseTokens);
-		return nextRead;
-	}
-
-	/**
-	 * Get load instructions belonging to the scheduler of action which
-	 * read from global variables.
-	 *
-	 * @param action
-	 * @return A Set of load instructions
-	 */
-	private Set<Token> getGlobalTokens(Action action) {
-		Set<Token> tokens = new HashSet<Token>();
-		for (Block b : action.getScheduler().getBlocks()) {
-			if (b instanceof BlockBasic) {
-				for (Instruction i : ((BlockBasic) b).getInstructions()) {
-					if (i instanceof InstLoad || i instanceof InstCall) {
-						Token t;
-						if (i instanceof InstLoad) {
-							t = new LoadTokenImpl((InstLoad) i);
-						} else {
-							t = new CallTokenImpl((InstCall) i);
-						}
-						if (t.isStateToken()) {
-							tokens.add(t);
-						}
-					}
-				}
-			}
-		}
-		return tokens;
-	}
-
-	/**
-	 * Get the load instructions belonging to the scheduler of action which
-	 * read from input channels to the actor.
-	 *
-	 * @param actor
-	 * @return A Set of load instructions
-	 */
-	private Set<Token> getInputTokens(Action action) {
-		Set<Token> tokens = new HashSet<Token>();
-		for(Block b : action.getScheduler().getBlocks()) {
-			if (b.isBlockBasic()) {
-				BlockBasic bb = (BlockBasic) b;
-				for (Instruction i : bb.getInstructions()) {
-					if (i instanceof InstLoad || i instanceof InstCall) {
-						Token t;
-						if (i instanceof InstLoad) {
-							t = new LoadTokenImpl((InstLoad) i);
-						} else {
-							t = new CallTokenImpl((InstCall) i);
-						}
-						if (t.isInputToken()){
-							tokens.add(t);
-						}
-					}
-				}
-			}
-		}
-		return tokens;
-	}
 
 	/**
 	 * Insert node as a child of current, if the constraints of node are sat
@@ -353,33 +234,6 @@ public class KPNValidator {
 		return nodes;
 	}
 
-
-	private boolean inspectState(Actor actor, State srcState) {
-		List<Action> actions = new ArrayList<Action>();
-		for (Edge edge : srcState.getOutgoing()) {
-			actions.add(((Transition) edge).getAction());
-		}
-		actions.addAll(actor.getActionsOutsideFsm());
-		SeqTreeNode root = inspectActionList(actor, actions, false);
-		srcState.setAttribute("SequenceTreeRoot", root);
-		if (root == null) {
-			return false;
-		} else {
-			return true;
-		}
-	}
-
-	private SeqTreeNode inspectActionList(Actor actor, List<Action> actions, boolean actorLevel) {
-		//OrccLogger.noticeln("[" + actor.getName() + "]: Getting peek sequence for : " + actions.toString());
-		SeqTreeNode root = getPeekSequence(actor, actions);
-		if (root == null) {
-			OrccLogger.warnln("No peek sequence for actor: " + actor.getName() + ": " + actions.toString());
-		} else {
-			//OrccLogger.noticeln("Peek sequence found for actor: " + actor.getName() + ": " + actions.toString());
-		}
-		return root;
-	}
-
 	private void analyzeOutputPorts(Actor actor, List<Action> actions) {
 		for (Action first : actions) {
 			for (Action second : actions) {
@@ -401,6 +255,162 @@ public class KPNValidator {
 					port.setNumTokensProduced(-1);
 				} 
 			}
+		}
+	}
+
+	/**
+	 * Determine whether constraints of nodes left and right
+	 * are simultaneously satisfiable
+	 *
+	 * @param left
+	 * @param right
+	 * @return true if satisfiable, false if mutually exclusive
+	 */
+	private boolean sat(SeqTreeNode left, SeqTreeNode right) {
+		// Clone existing actions
+		Action leftAction = IrUtil.copy(left.getActions().iterator().next());
+		Action rightAction = IrUtil.copy(right.getActions().iterator().next());
+
+		// Set constraints of cloned actions
+		left.getConstraints().setConstraint(leftAction);
+		right.getConstraints().setConstraint(rightAction);
+
+		return satChecker.checkSat(leftAction, rightAction);
+	}
+
+	/**
+	 * Determine whether constraints of node are satisfiable
+	 *
+	 * @param node
+	 * @return true if satisfiable, false otherwise
+	 */
+	private boolean sat(SeqTreeNode node) {
+		// Clone existing action
+		Action action = IrUtil.copy(node.getActions().iterator().next());
+
+		// Set constraints of cloned action
+		node.getConstraints().setConstraint(action);
+
+		return satChecker.checkSat(action);
+	}
+
+	/**
+	 * Get the tokens which can be read by all actions in a DAL KPN.
+	 * This is the intersection of the input tokens of all actions and
+	 * the union of state tokens of all actions
+	 *
+	 * @param actions
+	 * @return A Set of tokens
+	 */
+	private Set<Token> getNextReadTokens(Set<Action> actions) {
+		Set<Token> theseTokens = new HashSet<Token>();
+		Set<Set<Token>> allInputTokens = new HashSet<Set<Token>>();
+		for (Action a : actions){
+			Set<Token> inputTokens = getInputTokens(a);
+			allInputTokens.add(inputTokens);
+		}
+		Set<Token> intersection = getIntersection(allInputTokens);
+		Set<Var> deps = new HashSet<Var>();
+		for (Token t : intersection) {
+			if (t instanceof LoadTokenImpl) {
+				deps.add(((LoadTokenImpl) t).getInstruction().getTarget().getVariable());
+			}
+		}
+		for (Action a : actions){
+			Set<Token> stateTokens = getStateTokens(a, deps);
+			theseTokens.addAll(stateTokens);
+		}
+		Set<Token> nextRead = new TreeSet<Token>();
+		nextRead.addAll(intersection);
+		nextRead.addAll(theseTokens);
+		return nextRead;
+	}
+
+	/**
+	 * Get state tokens belonging to the scheduler of <code>action</code>
+	 * given the <code>inputVars</code> which are defined by the input
+	 * tokens.
+	 *
+	 * @param action
+	 * @return A Set of tokens
+	 */
+	private Set<Token> getStateTokens(Action action, Collection<Var> inputVars) {
+		Set<Token> tokens = new TreeSet<Token>();
+		Set<Var> vars = new HashSet<Var>(inputVars);
+		for (Block b : action.getScheduler().getBlocks()) {
+			if (b instanceof BlockBasic) {
+				for (Instruction i : ((BlockBasic) b).getInstructions()) {
+					if (i instanceof InstLoad || i instanceof InstCall) {
+						Token t;
+						if (i instanceof InstLoad) {
+							t = new LoadTokenImpl((InstLoad) i);
+						} else {
+							t = new CallTokenImpl((InstCall) i);
+						}
+						if (t.isStateToken()) {
+							tokens.add(t);
+							vars.add(t.getTargetVar());
+						}
+					}
+				}
+			}
+		}
+		// Remove tokens whose dependencies are not fulfilled
+		for (Token t : tokens) {
+			if (!t.depsFulfilledBy(vars)) {
+				tokens.remove(t);
+			}
+		}
+		return tokens;
+	}
+
+	/**
+	 * Get the input tokens belonging to the scheduler of <code>action</code>.
+	 *
+	 * @param actor
+	 * @return A Set of load instructions
+	 */
+	private Set<Token> getInputTokens(Action action) {
+		Set<Token> tokens = new HashSet<Token>();
+		for(Block b : action.getScheduler().getBlocks()) {
+			if (b.isBlockBasic()) {
+				BlockBasic bb = (BlockBasic) b;
+				for (Instruction i : bb.getInstructions()) {
+					if (i instanceof InstLoad || i instanceof InstCall) {
+						Token t;
+						if (i instanceof InstLoad) {
+							t = new LoadTokenImpl((InstLoad) i);
+						} else {
+							t = new CallTokenImpl((InstCall) i);
+						}
+						if (t.isInputToken()){
+							tokens.add(t);
+						}
+					}
+				}
+			}
+		}
+		return tokens;
+	}
+
+	/**
+	 * Get the set intersection. Given a set of Sets, this function determines
+	 * the intersection of all Sets and returns the elements in the intersection
+	 *
+	 * @param s a set of Sets
+	 * @return a set representing the intersection of the values of the Sets
+	 */
+	private <E> Set<E> getIntersection(Set<Set<E>> s){
+		Iterator<Set<E>> it = s.iterator();
+		if (it.hasNext()) {
+			Set<E> result = new HashSet<E>(it.next());
+			while (it.hasNext()) {
+				Set<E> others = it.next();
+				result.retainAll(others);
+			}
+			return result;
+		} else {
+			return null;
 		}
 	}
 
