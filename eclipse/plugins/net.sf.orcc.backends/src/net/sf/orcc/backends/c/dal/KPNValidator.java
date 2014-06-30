@@ -131,8 +131,8 @@ public class KPNValidator {
 							actor.addAttribute("variableInputPattern");
 						}
 					} else {
-						//OrccLogger.warnln("(" + actor.getName() + ") action '" + firstAction.getName() + "' reads port '"  + port.getName() +
-						//		"'\n but action '"+ secondAction.getName() + "' does not. Application may deadlock.");
+						OrccLogger.warnln("(" + actor.getName() + ") action '" + firstAction.getName() + "' reads port '"  + port.getName() +
+								"'\n but action '"+ secondAction.getName() + "' does not. Application may deadlock.");
 						isKPN = false;
 					}
 				}
