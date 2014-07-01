@@ -147,6 +147,8 @@ public class Classifier extends DfVisitor<Void> {
 			OrccLogger.warnln("An exception occurred when classifying actor ("
 					+ e.getMessage() + ")");
 			OrccLogger.traceln("MoC of " + actor.getName() + ": " + moc);
+			String kpn = (moc.isDPN()) ? "NOT KPN" : "KPN";
+			OrccLogger.noticeln("Actor [" + actor.getName() + "] is " + kpn);
 		} finally {
 			this.actor = null;
 		}
@@ -211,6 +213,8 @@ public class Classifier extends DfVisitor<Void> {
 		// set and print MoC
 		actor.setMoC(moc);
 		OrccLogger.traceln("MoC of " + actor.getName() + ": " + moc);
+		String kpn = (moc.isDPN()) ? "NOT KPN" : "KPN";
+		OrccLogger.noticeln("Actor [" + actor.getName() + "] is " + kpn);
 	}
 
 	/**
