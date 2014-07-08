@@ -18,28 +18,28 @@ import net.sf.orcc.df.Action;
 public class SeqTreeNode{
 
 	private GuardConstraint constraints;
-	private Set<Action> actions;
+	private List<Action> actions;
 	private Set<Token> processed;
 	private List<SeqTreeNode> children;
 
-	SeqTreeNode(GuardConstraint constraints, Set<Action> actions, Set<Token> tokens){
+	SeqTreeNode(GuardConstraint constraints, List<Action> list, Set<Token> tokens){
 		this.setConstraints(constraints);
 		this.setProcessed(tokens);
-		this.actions = new HashSet<Action>(actions);
+		this.actions = new ArrayList<Action>(list);
 		this.children = new ArrayList<SeqTreeNode>();
 	}
 
 	SeqTreeNode(Collection<Action> actions){
 		this.constraints = null;
 		this.processed = new TreeSet<Token>();
-		this.actions = new HashSet<Action>(actions);
+		this.actions = new ArrayList<Action>(actions);
 		this.children = new ArrayList<SeqTreeNode>();
 	}
 
 	SeqTreeNode(GuardConstraint constraints, Action action, Set<Token> tokens){
 		this.setConstraints(constraints);
 		this.setProcessed(tokens);
-		this.actions = new TreeSet<Action>();
+		this.actions = new ArrayList<Action>();
 		this.children = new ArrayList<SeqTreeNode>();
 		actions.add(action);
 	}
@@ -65,7 +65,7 @@ public class SeqTreeNode{
 		this.processed.addAll(temp);
 	}
 
-	public Set<Action> getActions(){
+	public List<Action> getActions(){
 		return actions;
 	}
 
@@ -81,13 +81,13 @@ public class SeqTreeNode{
 		this.children.remove(child);
 	}
 
-	public void addChild(GuardConstraint constraints, Set<Token> tokens, Set<Action> actions){
+	public void addChild(GuardConstraint constraints, Set<Token> tokens, List<Action> actions){
 		SeqTreeNode child = new SeqTreeNode(constraints, actions, tokens);
 		this.children.add(child);
 	}
 
 	public void addChild(GuardConstraint constraints, Set<Token> tokens, Action action){
-		Set<Action> s = new TreeSet<Action>();
+		List<Action> s = new ArrayList<Action>();
 		s.add(action);
 		addChild(constraints, tokens, s);
 	}

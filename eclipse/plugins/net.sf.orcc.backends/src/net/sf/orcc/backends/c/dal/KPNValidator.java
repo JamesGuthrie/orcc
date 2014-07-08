@@ -42,6 +42,7 @@ import net.sf.orcc.df.Network;
 public class KPNValidator {
 
 	private GuardSatChecker satChecker;
+	private ArrayList<Action> actions;
 
 	public void validate(Network network) {
 		for (Actor actor : network.getAllActors()) {
@@ -55,7 +56,7 @@ public class KPNValidator {
 			} else {
 				if (actor.getActions().size() >= 1) {
 					SeqTreeNode root;
-					root = inspectActionList(actor, actor.getActions(), false);
+					root = inspectActionList(actor, actor.getActionsOutsideFsm(), false);
 					actor.setAttribute("SequenceTreeRoot", root);
 					if (root == null) {
 						isKPN = false;
@@ -134,6 +135,7 @@ public class KPNValidator {
 	 */
 	private SeqTreeNode getPeekSequence(Actor actor, List<Action> actions) {
 		satChecker = new GuardSatChecker(actor);
+		this.actions = new ArrayList<Action>(actions);
 		SeqTreeNode root = new SeqTreeNode(actions);
 		return addChildren(root);
 	}
@@ -145,7 +147,7 @@ public class KPNValidator {
 	 * @return The root node of a peek sequence tree
 	 */
 	private SeqTreeNode addChildren(SeqTreeNode current) {
-		Set<Action> actions = current.getActions();
+	    List<Action> actions = current.getActions();
 		Set<Token> intersection = getNextReadTokens(actions);
 		intersection.removeAll(current.getProcessed());
 		if (!intersection.isEmpty()){
@@ -167,6 +169,16 @@ public class KPNValidator {
 					if ((current.getConstraints() == null) || !current.getConstraints().equivalent(action)){
 						OrccLogger.warnln("\t\tActions " + actions.toString() + " are not mutually exclusive");
 						return null;
+					} else {
+						for (Action other : actions) {
+							// Use actor actions list here to ensure that ordering is correct
+							int actionIdx = this.actions.indexOf(action);
+							int otherIdx = this.actions.indexOf(other);
+							if ((actionIdx > otherIdx) && !action.getInputPattern().isSupersetOf(other.getInputPattern())) {
+							    OrccLogger.warnln("\t\tActions " + actions.toString() + " are not mutually exclusive");
+								return null;
+							}
+						}
 					}
 				}
 			}
@@ -221,7 +233,7 @@ public class KPNValidator {
 		Set<SeqTreeNode> nodes = new HashSet<SeqTreeNode>();
 		Set<Token> processed = left.getProcessed();
 
-		Set<Action> actions = new HashSet<Action>(left.getActions());
+		List<Action> actions = new ArrayList<Action>(left.getActions());
 		actions.addAll(right.getActions());
 		SeqTreeNode n;
 		n = new SeqTreeNode(intersect, actions, processed);
@@ -292,7 +304,7 @@ public class KPNValidator {
 	 * @param node
 	 * @return true if satisfiable, false otherwise
 	 */
-	private boolean sat(SeqTreeNode node, Set<Action> actions) {
+	private boolean sat(SeqTreeNode node, Collection<Action> actions) {
 		// Clone existing action
 		Action action = IrUtil.copy(getPeekiestAction(actions));
 
@@ -302,7 +314,7 @@ public class KPNValidator {
 		return satChecker.checkSat(action);
 	}
 
-	private Action getPeekiestAction(Set<Action> actions) {
+	private Action getPeekiestAction(Collection<Action> actions) {
 		Iterator<Action> iter = actions.iterator();
 		Action action = iter.next();
 		while (iter.hasNext()) {
@@ -322,7 +334,7 @@ public class KPNValidator {
 	 * @param actions
 	 * @return A Set of tokens
 	 */
-	private Set<Token> getNextReadTokens(Set<Action> actions) {
+	private Set<Token> getNextReadTokens(Collection<Action> actions) {
 		Set<Token> theseTokens = new HashSet<Token>();
 		Set<Set<Token>> allInputTokens = new HashSet<Set<Token>>();
 		for (Action a : actions){
